@@ -1,8 +1,12 @@
 using System.Collections;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using UnityEngine;
 using System.Linq;
 using System.Text;
+
+using PixelsCentral = Systemic.Pixels.Unity.BluetoothLE.Central;
+using ScannedPeripheral = Systemic.Pixels.Unity.BluetoothLE.ScannedPeripheral;
 
 public class Central : SingletonMonoBehaviour<Central>
 {
@@ -11,6 +15,7 @@ public class Central : SingletonMonoBehaviour<Central>
     /// </summary>
     public interface IDie
     {
+        ScannedPeripheral scannedPeripheral { get; }
         string name { get; }
         string address { get; }
     }
@@ -45,8 +50,9 @@ public class Central : SingletonMonoBehaviour<Central>
             }
         }
 
-        public string name;
-        public string address;
+        public ScannedPeripheral scannedPeripheral { get; }
+        public string name => scannedPeripheral.Name;
+        public string address => scannedPeripheral.SystemId;
 
         public float startTime; // Used for timing out while looking for characteristics or subscribing to one
         public bool deviceConnected;
@@ -60,19 +66,15 @@ public class Central : SingletonMonoBehaviour<Central>
         public System.Action<IDie, bool, string> onDisconnectionResult;
         public System.Action<IDie, string> onUnexpectedDisconnection;
 
-        public Die(string address, string name)
+        public Die(ScannedPeripheral scannedPeripheral)
         {
-            this.name = name;
-            this.address = address;
+            this.scannedPeripheral = scannedPeripheral;
             state = State.Advertising;
             startTime = float.MaxValue;
             deviceConnected = false;
             messageWriteCharacteristicFound = false;
             messageReadCharacteristicFound = false;
         }
-
-        string IDie.name => name;
-        string IDie.address => address;
     }
 
     const string serviceGUID = "6E400001-B5A3-F393-E0A9-E50E24DCCA9E";
@@ -107,11 +109,15 @@ public class Central : SingletonMonoBehaviour<Central>
         }
     }
 
-    Dictionary<string, Die> _dice;
+    Dictionary<string, Die> _dice = new Dictionary<string, Die>();
+
+    // Scanning (discovery) callbacks
+    System.Action<IDie> _onDieDiscovered;
+    System.Action<IDie, int, byte[]> _onCustomAdvertisingData;
 
     abstract class Operation
     {
-        public abstract void Process(Central central);
+        public abstract IEnumerator Process(Central central);
     }
 
     class OperationConnect
@@ -122,9 +128,9 @@ public class Central : SingletonMonoBehaviour<Central>
         public System.Action<IDie, byte[]> onDataCallback;
         public System.Action<IDie, string> onUnexpectedDisconnectionCallback;
 
-        public override void Process(Central central)
+        public override IEnumerator Process(Central central)
         {
-            central.DoConnectDie(die, connectionResultCallback, onDataCallback, onUnexpectedDisconnectionCallback);
+            return central.DoConnectDie(die, connectionResultCallback, onDataCallback, onUnexpectedDisconnectionCallback);
         }
     }
 
@@ -134,9 +140,9 @@ public class Central : SingletonMonoBehaviour<Central>
         public IDie die;
         public System.Action<IDie, bool, string> onDisconnectionResult;
 
-        public override void Process(Central central)
+        public override IEnumerator Process(Central central)
         {
-            central.DoDisconnectDie(die, onDisconnectionResult);
+            return central.DoDisconnectDie(die, onDisconnectionResult);
         }
     }
 
@@ -145,16 +151,17 @@ public class Central : SingletonMonoBehaviour<Central>
     {
         public IDie die;
         public byte[] bytes;
-        public int length;
         public System.Action<IDie, bool, string> bytesWrittenCallback;
 
-        public override void Process(Central central)
+        public override IEnumerator Process(Central central)
         {
-            central.DoWriteDie(die, bytes, length, bytesWrittenCallback);
+            return central.DoWriteDie(die, bytes, bytesWrittenCallback);
         }
     }
 
-    readonly Queue<Operation> operations = new Queue<Operation>();
+    // The thread-safe queue is used only as an extra precaution
+    // as operations should always be pushed on the main thread
+    readonly ConcurrentQueue<Operation> _operations = new ConcurrentQueue<Operation>();
 
     /// <summary>
     /// Initiates a bluetooth scan
@@ -182,10 +189,17 @@ public class Central : SingletonMonoBehaviour<Central>
             }
         }
 
-        BluetoothLEHardwareInterface.ScanForPeripheralsWithServices(
-            new string[] { serviceGUID },
-            (a, n) => OnDeviceDiscovered(a, n, onDieDiscovered, onCustomAdvertisingData),
-            OnDeviceAdvertisingInfo, false, false);
+        _onDieDiscovered = onDieDiscovered;
+        _onCustomAdvertisingData = onCustomAdvertisingData;
+
+        // Remove any previous subscription to avoid receiving event twice
+        PixelsCentral.PeripheralDiscovered -= OnPeripheralDiscovered;
+        PixelsCentral.PeripheralDiscovered += OnPeripheralDiscovered;
+        PixelsCentral.ScanForPeripheralsWithServices(new[] { new System.Guid(serviceGUID) });
+        //BluetoothLEHardwareInterface.ScanForPeripheralsWithServices(
+        //    new string[] { serviceGUID },
+        //    (a, n) => OnDeviceDiscovered(a, n, onDieDiscovered, onCustomAdvertisingData),
+        //    OnDeviceAdvertisingInfo, false, false);
 
         return true;
     }
@@ -204,7 +218,8 @@ public class Central : SingletonMonoBehaviour<Central>
         Debug.Log("stop scan");
 
         // Stop scanning
-        BluetoothLEHardwareInterface.StopScan();
+        PixelsCentral.StopScan();
+        //BluetoothLEHardwareInterface.StopScan();
         state = State.Idle;
         return true;
     }
@@ -227,13 +242,13 @@ public class Central : SingletonMonoBehaviour<Central>
         System.Action<IDie, byte[]> onDataCallback,
         System.Action<IDie, string> onUnexpectedDisconnectionCallback)
     {
-        operations.Enqueue(new OperationConnect() { die = die, connectionResultCallback = connectionResultCallback, onDataCallback = onDataCallback, onUnexpectedDisconnectionCallback = onUnexpectedDisconnectionCallback });
+        _operations.Enqueue(new OperationConnect() { die = die, connectionResultCallback = connectionResultCallback, onDataCallback = onDataCallback, onUnexpectedDisconnectionCallback = onUnexpectedDisconnectionCallback });
         TryPerformOneOperation();
     }
 
     public void DisconnectDie(IDie die, System.Action<IDie, bool, string> onDisconnectionResult)
     {
-        operations.Enqueue(new OperationDisconnect() { die = die, onDisconnectionResult = onDisconnectionResult });
+        _operations.Enqueue(new OperationDisconnect() { die = die, onDisconnectionResult = onDisconnectionResult });
         TryPerformOneOperation();
     }
 
@@ -242,18 +257,17 @@ public class Central : SingletonMonoBehaviour<Central>
     /// </summary>
     /// <param name="die">The die to write to</param>
     /// <param name="bytes">The data to write</param>
-    /// <param name="length">The length of the data (can be less than the buffer length)</param>
     /// <param name="bytesWrittenCallback">Callback for when the data is written</param>
-    public void WriteDie(IDie die, byte[] bytes, int length, System.Action<IDie, bool, string> bytesWrittenCallback)
+    public void WriteDie(IDie die, byte[] bytes, System.Action<IDie, bool, string> bytesWrittenCallback)
     {
-        operations.Enqueue(new OperationWriteDie() { die = die, bytes = bytes, length = length, bytesWrittenCallback = bytesWrittenCallback });
+        _operations.Enqueue(new OperationWriteDie() { die = die, bytes = bytes, bytesWrittenCallback = bytesWrittenCallback });
         TryPerformOneOperation();
     }
 
     /// <summary>
     /// Connect to a die
     /// </summary>
-    void DoConnectDie(
+    IEnumerator DoConnectDie(
         IDie die,
         System.Action<IDie, bool, string> connectionResultCallback,
         System.Action<IDie, byte[]> onDataCallback,
@@ -264,7 +278,7 @@ public class Central : SingletonMonoBehaviour<Central>
             if (ddie.state != Die.State.Advertising)
             {
                 Debug.LogError("Die " + die.name + " in invalid state " + ddie.state);
-                return;
+                yield break;
             }
 
             ddie.state = Die.State.Connecting;
@@ -281,7 +295,8 @@ public class Central : SingletonMonoBehaviour<Central>
             state = State.Connecting;
 
             // And kick off the connection!
-            BluetoothLEHardwareInterface.ConnectToPeripheral(die.address, OnDeviceConnected, OnServiceDiscovered, OnCharacteristicDiscovered, OnDeviceDisconnected);
+            yield return PixelsCentral.ConnectPeripheralAsync(die.scannedPeripheral, OnPeripheralConnectionEvent);
+            //BluetoothLEHardwareInterface.ConnectToPeripheral(die.address, OnDeviceConnected, OnServiceDiscovered, OnCharacteristicDiscovered, OnDeviceDisconnected);
         }
         else
         {
@@ -294,7 +309,7 @@ public class Central : SingletonMonoBehaviour<Central>
     /// <summary>
     /// Disconnect from a given die
     /// </summary>
-    void DoDisconnectDie(IDie die, System.Action<IDie, bool, string> onDisconnectionResult)
+    IEnumerator DoDisconnectDie(IDie die, System.Action<IDie, bool, string> onDisconnectionResult)
     {
         if (_dice.TryGetValue(die.address, out Die ddie))
         {
@@ -302,7 +317,7 @@ public class Central : SingletonMonoBehaviour<Central>
             if (ddie.state == Die.State.Advertising)
             {
                 Debug.LogError("Die " + die.name + " in invalid state " + ddie.state);
-                return;
+                yield break;
             }
 
             state = State.Disconnecting;
@@ -310,7 +325,8 @@ public class Central : SingletonMonoBehaviour<Central>
             // And kick off the disconnection!
             ddie.state = Die.State.Disconnecting;
             ddie.onDisconnectionResult = onDisconnectionResult;
-            BluetoothLEHardwareInterface.DisconnectPeripheral(die.address, null); // <-- we don't use this callback, we already have one
+            yield return PixelsCentral.DisconnectPeripheralAsync(die.scannedPeripheral);
+            //BluetoothLEHardwareInterface.DisconnectPeripheral(die.address, null); // <-- we don't use this callback, we already have one
         }
         else
         {
@@ -318,20 +334,22 @@ public class Central : SingletonMonoBehaviour<Central>
         }
     }
 
-    void DoWriteDie(IDie die, byte[] bytes, int length, System.Action<IDie, bool, string> bytesWrittenCallback)
+    IEnumerator DoWriteDie(IDie die, byte[] bytes, System.Action<IDie, bool, string> bytesWrittenCallback)
     {
         if (_dice.TryGetValue(die.address, out Die ddie))
         {
             if (ddie.state != Die.State.Ready)
             {
                 Debug.LogError("Die " + die.name + " in invalid state " + ddie.state);
-                return;
+                yield break;
             }
 
-            Debug.Log($"Writing data of size = {length} ({bytes.Length}) with first byte = {bytes.FirstOrDefault()}");
+            Debug.Log($"Writing data for {die.address} of size = {bytes.Length} with first byte = {bytes.FirstOrDefault()}");
 
             // Write the data!
-            BluetoothLEHardwareInterface.WriteCharacteristic(die.address, serviceGUID, writeCharacteristic, bytes, length, false, null);
+            yield return PixelsCentral.WriteCharacteristicAsync(
+                die.scannedPeripheral, new System.Guid(serviceGUID), new System.Guid(writeCharacteristic), bytes);
+            //BluetoothLEHardwareInterface.WriteCharacteristic(die.address, serviceGUID, writeCharacteristic, bytes, length, false, null);
             bytesWrittenCallback?.Invoke(die, true, null);
         }
         else
@@ -345,27 +363,22 @@ public class Central : SingletonMonoBehaviour<Central>
     void Awake()
     {
         state = State.Uninitialized;
-        _dice = new Dictionary<string, Die>();
     }
 
     void Start()
     {
         state = State.Initializing;
-#if !UNITY_EDITOR_OSX
-        BluetoothLEHardwareInterface.Initialize(true, false, OnBluetoothInitComplete, OnError);
-#else
-        OnBluetoothInitComplete();
-#endif
-#if UNITY_IOS || UNITY_TVOS
-        // Weird implementation of MTU in iOS plugin that just takes the given value as its global "MTU" (not per device)
-        BluetoothLEHardwareInterface.RequestMtu("Pixel", 180, null);
-#endif
+        if (PixelsCentral.Initialize())
+        {
+            //TODO support for disabled BLE, notify user on error
+            OnBluetoothInitComplete();
+        }
     }
 
     protected override void OnDestroy()
     {
         base.OnDestroy();
-        BluetoothLEHardwareInterface.DeInitialize(null);
+        PixelsCentral.Shutdown();
     }
 
     // Update is called once per frame
@@ -389,11 +402,11 @@ public class Central : SingletonMonoBehaviour<Central>
 
     bool TryPerformOneOperation()
     {
-        bool res = state == State.Idle && operations.Count > 0;
+        Operation op = null;
+        bool res = (state == State.Idle) && _operations.TryDequeue(out op);
         if (res)
         {
-            var op = operations.Dequeue();
-            op.Process(this);
+            StartCoroutine(op.Process(this));
         }
         return res;
     }
@@ -404,108 +417,121 @@ public class Central : SingletonMonoBehaviour<Central>
         state = State.Idle;
     }
 
-    void OnError(string error)
+    //TODO error handling
+    //void OnError(string error)
+    //{
+    //    bool errorAttributed = false;
+    //    var addressesToRemove = new List<string>();
+    //    foreach (var die in _dice.Values)
+    //    {
+    //        switch (die.state)
+    //        {
+    //            case Die.State.Disconnecting:
+    //                Debug.Assert(state == State.Disconnecting);
+    //                state = State.Idle;
+    //                Debug.LogError($"Error while disconnecting from {die.name} (connected={die.deviceConnected}): {error}");
+
+    //                // We got an error while this die was disconnecting,
+    //                // Just indicate it
+    //                die.onDisconnectionResult?.Invoke(die, false, error);
+    //                die.onDisconnectionResult = null;
+    //                addressesToRemove.Add(die.address);
+    //                errorAttributed = true;
+    //                break;
+    //            case Die.State.Advertising:
+    //                // Ignore this die
+    //                break;
+    //            case Die.State.Connecting:
+    //                Debug.Assert(state == State.Connecting);
+    //                state = State.Idle;
+
+    //                Debug.LogError($"Error while connecting to {die.name} (connected={die.deviceConnected}): {error}");
+    //                die.onConnectionResult?.Invoke(die, false, error);
+    //                die.onConnectionResult = null;
+    //                die.onUnexpectedDisconnection = null;
+    //                die.onData = null;
+
+    //                // Temporarily add the die to the connected list to avoid an error message during the disconnect
+    //                // And force a disconnect
+    //                if (die.deviceConnected)
+    //                {
+    //                    die.state = Die.State.Disconnecting;
+    //                    state = State.Disconnecting;
+    //                    BluetoothLEHardwareInterface.DisconnectPeripheral(die.address, null);
+    //                }
+    //                else
+    //                {
+    //                    state = State.Idle;
+    //                    addressesToRemove.Add(die.address);
+    //                }
+    //                errorAttributed = true;
+    //                break;
+    //            case Die.State.Connected:
+    //                // Ignore this die
+    //                break;
+    //            case Die.State.Subscribing:
+    //                {
+    //                    Debug.Assert(state == State.Connecting);
+    //                    state = State.Idle;
+    //                    Debug.LogError($"Characteristic error with {die.name} (connected={die.deviceConnected}): {error}");
+
+    //                    die.onConnectionResult?.Invoke(die, false, error);
+    //                    die.onConnectionResult = null;
+    //                    die.onUnexpectedDisconnection = null;
+    //                    die.onData = null;
+
+    //                    // Temporarily add the die to the connected list to avoid an error message during the disconnect
+    //                    // And force a disconnect
+    //                    die.state = Die.State.Disconnecting;
+    //                    state = State.Disconnecting;
+    //                    BluetoothLEHardwareInterface.DisconnectPeripheral(die.address, null);
+    //                    errorAttributed = true;
+
+    //                    // Only kick off the next subscription IF this was the 'current' subscription attempt
+    //                    // Otherwise there will still be a subscription success/fail event and we'll trigger
+    //                    // the next one then.
+    //                    StartNextSubscribeToCharacteristic();
+    //                }
+    //                break;
+    //            case Die.State.Ready:
+    //            default:
+    //                // ignore this die
+    //                break;
+    //        }
+    //    }
+
+    //    // Remove all the dice that errored out!
+    //    // In most every case this is only one die
+    //    foreach (var add in addressesToRemove)
+    //    {
+    //        _dice.Remove(add);
+    //    }
+
+    //    // Print something!
+    //    if (!errorAttributed)
+    //    {
+    //        Debug.LogError("Bluetooth error: " + error);
+    //    }
+    //}
+
+    void OnPeripheralDiscovered(ScannedPeripheral scannedPeripheral)
     {
-        bool errorAttributed = false;
-        var addressesToRemove = new List<string>();
-        foreach (var die in _dice.Values)
+        OnDeviceDiscovered(scannedPeripheral, _onDieDiscovered, _onCustomAdvertisingData);
+
+        if (scannedPeripheral.ManufacturerData?.Count > 0)
         {
-            switch (die.state)
-            {
-                case Die.State.Disconnecting:
-                    Debug.Assert(state == State.Disconnecting);
-                    state = State.Idle;
-                    Debug.LogError($"Error while disconnecting from {die.name} (connected={die.deviceConnected}): {error}");
-
-                    // We got an error while this die was disconnecting,
-                    // Just indicate it
-                    die.onDisconnectionResult?.Invoke(die, false, error);
-                    die.onDisconnectionResult = null;
-                    addressesToRemove.Add(die.address);
-                    errorAttributed = true;
-                    break;
-                case Die.State.Advertising:
-                    // Ignore this die
-                    break;
-                case Die.State.Connecting:
-                    Debug.Assert(state == State.Connecting);
-                    state = State.Idle;
-
-                    Debug.LogError($"Error while connecting to {die.name} (connected={die.deviceConnected}): {error}");
-                    die.onConnectionResult?.Invoke(die, false, error);
-                    die.onConnectionResult = null;
-                    die.onUnexpectedDisconnection = null;
-                    die.onData = null;
-
-                    // Temporarily add the die to the connected list to avoid an error message during the disconnect
-                    // And force a disconnect
-                    if (die.deviceConnected)
-                    {
-                        die.state = Die.State.Disconnecting;
-                        state = State.Disconnecting;
-                        BluetoothLEHardwareInterface.DisconnectPeripheral(die.address, null);
-                    }
-                    else
-                    {
-                        state = State.Idle;
-                        addressesToRemove.Add(die.address);
-                    }
-                    errorAttributed = true;
-                    break;
-                case Die.State.Connected:
-                    // Ignore this die
-                    break;
-                case Die.State.Subscribing:
-                    {
-                        Debug.Assert(state == State.Connecting);
-                        state = State.Idle;
-                        Debug.LogError($"Characteristic error with {die.name} (connected={die.deviceConnected}): {error}");
-
-                        die.onConnectionResult?.Invoke(die, false, error);
-                        die.onConnectionResult = null;
-                        die.onUnexpectedDisconnection = null;
-                        die.onData = null;
-
-                        // Temporarily add the die to the connected list to avoid an error message during the disconnect
-                        // And force a disconnect
-                        die.state = Die.State.Disconnecting;
-                        state = State.Disconnecting;
-                        BluetoothLEHardwareInterface.DisconnectPeripheral(die.address, null);
-                        errorAttributed = true;
-
-                        // Only kick off the next subscription IF this was the 'current' subscription attempt
-                        // Otherwise there will still be a subscription success/fail event and we'll trigger
-                        // the next one then.
-                        StartNextSubscribeToCharacteristic();
-                    }
-                    break;
-                case Die.State.Ready:
-                default:
-                    // ignore this die
-                    break;
-            }
-        }
-
-        // Remove all the dice that errored out!
-        // In most every case this is only one die
-        foreach (var add in addressesToRemove)
-        {
-            _dice.Remove(add);
-        }
-
-        // Print something!
-        if (!errorAttributed)
-        {
-            Debug.LogError("Bluetooth error: " + error);
+            OnDeviceAdvertisingInfo(scannedPeripheral.SystemId, scannedPeripheral.Name, scannedPeripheral.Rssi, scannedPeripheral.ManufacturerData.ToArray());
         }
     }
 
     void OnDeviceDiscovered(
-        string address,
-        string name,
+        //string address,
+        //string name,
+        ScannedPeripheral scannedPeripheral,
         System.Action<IDie> onDieDiscovered,
         System.Action<IDie, int, byte[]> onCustomAdvertisingData)
     {
+        string address = scannedPeripheral.SystemId;
         if (_dice.TryGetValue(address, out Die die))
         {
             switch (die.state)
@@ -526,7 +552,7 @@ public class Central : SingletonMonoBehaviour<Central>
         else
         {
             // We didn't know this die before, create it
-            die = new Die(address, name);
+            die = new Die(scannedPeripheral);
             _dice.Add(address, die);
 
             Debug.Log($"Discovered new die {address} - {name}");
@@ -547,6 +573,32 @@ public class Central : SingletonMonoBehaviour<Central>
         else 
         {
             Debug.LogError("Received advertising data for unknown die address" + address);
+        }
+    }
+
+    void OnPeripheralConnectionEvent(ScannedPeripheral scannedPeripheral, bool connected)
+    {
+        if (connected)
+        {
+            OnDeviceConnected(scannedPeripheral.SystemId);
+            var services = PixelsCentral.GetPeripheralDiscoveredServices(scannedPeripheral);
+            if (services?.Contains(new System.Guid(serviceGUID)) ?? false)
+            {
+                OnServiceDiscovered(scannedPeripheral.SystemId, serviceGUID);
+                var characteristics = PixelsCentral.GetPeripheralServiceCharacteristics(scannedPeripheral, new System.Guid(serviceGUID));
+                if (characteristics != null)
+                {
+                    foreach (var uuid in characteristics)
+                    {
+                        OnCharacteristicDiscovered(scannedPeripheral.SystemId, serviceGUID, uuid.ToString());
+                    }
+                }
+            }
+            //TODO and if service or characteristics not found?
+        }
+        else
+        {
+            OnDeviceDisconnected(scannedPeripheral.SystemId);
         }
     }
 
@@ -706,7 +758,8 @@ public class Central : SingletonMonoBehaviour<Central>
                 // And force a disconnect
                 die.state = Die.State.Disconnecting;
                 state = State.Disconnecting;
-                BluetoothLEHardwareInterface.DisconnectPeripheral(die.address, null);
+                StartCoroutine(PixelsCentral.DisconnectPeripheralAsync(die.scannedPeripheral));
+                //BluetoothLEHardwareInterface.DisconnectPeripheral(die.address, null);
             }
             // Else just keep waiting
         }
@@ -723,14 +776,33 @@ public class Central : SingletonMonoBehaviour<Central>
             nextToSub.startTime = Time.time;
 
             // And subscribe!
-            BluetoothLEHardwareInterface.SubscribeCharacteristic(
-                nextToSub.address,
-                serviceGUID,
-                subscribeCharacteristic,
-                OnCharacteristicSubscriptionChanged,
-                (charac, data) => OnCharacteristicData(nextToSub.address, data));
+            StartCoroutine(SubscribeCharacteristicAsync(nextToSub.scannedPeripheral));
+            //BluetoothLEHardwareInterface.SubscribeCharacteristic(
+            //    nextToSub.address,
+            //    serviceGUID,
+            //    subscribeCharacteristic,
+            //    OnCharacteristicSubscriptionChanged,
+            //    (charac, data) => OnCharacteristicData(nextToSub.address, data));
         }
         // Else no more subscription pending
+    }
+
+    IEnumerator SubscribeCharacteristicAsync(ScannedPeripheral scannedPeripheral)
+    {
+        string address = scannedPeripheral.SystemId;
+        var request = PixelsCentral.SubscribeCharacteristicAsync(
+            scannedPeripheral, new System.Guid(serviceGUID), new System.Guid(subscribeCharacteristic),
+            data => OnCharacteristicData(address, data));
+        yield return request;
+        yield return new WaitForSeconds(1);
+        if (request.IsSuccess)
+        {
+            OnCharacteristicSubscriptionChanged(subscribeCharacteristic);
+        }
+        else
+        {
+            Debug.LogError("SubscribeCharacteristicAsync failed");
+        }
     }
 
     void OnCharacteristicSubscriptionChanged(string characteristic)
@@ -773,7 +845,8 @@ public class Central : SingletonMonoBehaviour<Central>
             // And force a disconnect
             die.state = Die.State.Disconnecting;
             state = State.Disconnecting;
-            BluetoothLEHardwareInterface.DisconnectPeripheral(die.address, null);
+            StartCoroutine(PixelsCentral.DisconnectPeripheralAsync(die.scannedPeripheral));
+            //BluetoothLEHardwareInterface.DisconnectPeripheral(die.address, null);
 
             StartNextSubscribeToCharacteristic();
         }
@@ -781,6 +854,8 @@ public class Central : SingletonMonoBehaviour<Central>
 
     void OnCharacteristicData(string address, byte[] data)
     {
+        Debug.Log($"Got data for {address} of size = {data.Length} with first byte = {data.FirstOrDefault()}");
+
         if (_dice.TryGetValue(address, out Die die))
         {
             if (die.state != Die.State.Ready)

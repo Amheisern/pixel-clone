@@ -43,7 +43,7 @@ public partial class Die
         Debug.Log($"Posting message of type {message.GetType()}");
 
         byte[] msgBytes = DieMessages.ToByteArray(message);
-        DicePool.Instance.WriteDie(this, msgBytes, msgBytes.Length, null);
+        DicePool.Instance.WriteDie(this, msgBytes, null);
     }
 
     IEnumerator WaitForMessageCr(DieMessageType msgType, System.Action<IDieMessage> msgReceivedCallback)
@@ -76,7 +76,7 @@ public partial class Die
 
         AddMessageHandler(ackType, callback);
         byte[] msgBytes = DieMessages.ToByteArray(message);
-        DicePool.Instance.WriteDie(this, msgBytes, msgBytes.Length, null);
+        DicePool.Instance.WriteDie(this, msgBytes, null);
         while (ackMessage == null && Time.time < startTime + timeOut)
         {
             yield return null;

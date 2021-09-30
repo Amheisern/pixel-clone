@@ -221,10 +221,10 @@ public class DicePool : SingletonMonoBehaviour<DicePool>
     /// <summary>
     /// Write some data to the die
     /// </sumary>
-    public void WriteDie(Die die, byte[] bytes, int length, System.Action<Die, bool, string> onWriteResult)
+    public void WriteDie(Die die, byte[] bytes, System.Action<Die, bool, string> onWriteResult)
     {
         var dt = dice.First(p => p.die == die);
-        Central.Instance.WriteDie(dt.centralDie, bytes, length, (d, res, errorMsg) =>
+        Central.Instance.WriteDie(dt.centralDie, bytes, (d, res, errorMsg) =>
         {
             onWriteResult?.Invoke(die, res, errorMsg);
         });
