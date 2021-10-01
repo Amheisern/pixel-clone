@@ -62,6 +62,14 @@ namespace Systemic.Pixels.Unity.BluetoothLE
             }
         }
 
+        void OnDestroy()
+        {
+            if (!_autoDestroy)
+            {
+                Central.Shutdown();
+            }
+        }
+
         #endregion
 
         class PeripheralState
@@ -72,15 +80,18 @@ namespace Systemic.Pixels.Unity.BluetoothLE
             public bool IsReady;
             public bool FailedToConnect;
             public bool AutoConnect;
-            public NativeRequestResultHandler ConnectErrorHandler;
         }
 
-        public static int ConnectionTimeout { get; set; } = 30;
+        public static int ConnectionTimeout { get; set; } = 10;
 
-        public static int RequestTimeout { get; set; } = 30;
+        public static int RequestTimeout { get; set; } = 5;
 
         // Dictionary key is peripheral SystemId
         static Dictionary<string, PeripheralState> _peripherals = new Dictionary<string, PeripheralState>();
+
+        public static bool IsReady { get; private set; }
+
+        public static bool IsScanning { get; private set; }
 
         public static event Action<ScannedPeripheral> PeripheralDiscovered;
 
@@ -111,19 +122,17 @@ namespace Systemic.Pixels.Unity.BluetoothLE
             }
         }
 
-        public static bool IsScanning { get; private set; }
-
         public static bool Initialize()
         {
             CreateBehaviour();
 
+            IsReady = false;
+
             bool success = NativeInterface.Initialize(available =>
             {
                 Debug.Log($"[BLE] Bluetooth status: {(available ? "" : "not")} available");
-                if (!available)
-                {
-                    IsScanning = false;
-                }
+                IsReady = available;
+                IsScanning = IsScanning && IsReady;
             });
 
             if (!success)
@@ -150,11 +159,19 @@ namespace Systemic.Pixels.Unity.BluetoothLE
         /// <remarks>If a scan is already in progress, it will replace it by the new one</remarks>
         public static bool ScanForPeripheralsWithServices(IEnumerable<Guid> serviceUuids = null)
         {
-            ClearScannedPeripherals();
+            if (!IsReady)
+            {
+                Debug.LogError("[BLE] Central not ready for scanning");
+                return false;
+            }
+
+            ClearScannedList();
 
             var requiredServices = serviceUuids?.ToArray() ?? Array.Empty<Guid>();
             IsScanning = NativeInterface.StartScan(serviceUuids, scannedPeripheral =>
             {
+                Debug.Log($"[BLE] Discovered peripheral {scannedPeripheral.Name}, rssi={scannedPeripheral.Rssi}, addr={scannedPeripheral.BluetoothAddress})");
+
                 lock (_peripherals)
                 {
                     if (!_peripherals.TryGetValue(scannedPeripheral.SystemId, out PeripheralState ps))
@@ -183,11 +200,13 @@ namespace Systemic.Pixels.Unity.BluetoothLE
 
         public static void StopScan()
         {
+            Debug.Log($"[BLE] Stopping scan");
+
             NativeInterface.StopScan();
             IsScanning = false;
         }
 
-        public static void ClearScannedPeripherals()
+        public static void ClearScannedList()
         {
             lock (_peripherals)
             {
@@ -226,14 +245,13 @@ namespace Systemic.Pixels.Unity.BluetoothLE
                     }
                     else if (!ps.IsReady)
                     {
-                        ps.ConnectErrorHandler = onResult;
-                        InternalConnect(ps);
+                        InternalConnect(ps, onResult);
                     }
                 });
             //TODO on timeout, stop further connection attempt (including the on-going one)
         }
 
-        static void InternalConnect(PeripheralState ps)
+        static void InternalConnect(PeripheralState ps, NativeRequestResultHandler onResult = null)
         {
             Debug.Log($"[BLE:{ps.ScannedPeripheral.Name}] Connecting...");
 
@@ -242,7 +260,7 @@ namespace Systemic.Pixels.Unity.BluetoothLE
             NativeInterface.ConnectPeripheral(
                 ps.PeripheralHandle,
                 ps.RequiredServices,
-                error => { }); //TODO if (!error.IsEmpty) ps.ConnectErrorHandler(error); });
+                error => onResult?.Invoke(error));
         }
 
         static void OnPeripheralConnectionEvent(PeripheralState ps, Action<ScannedPeripheral, bool> onConnectionEvent, ConnectionEvent connectionEvent, ConnectionEventReason reason)
@@ -258,8 +276,11 @@ namespace Systemic.Pixels.Unity.BluetoothLE
                 return;
             }
 
+            bool statusChanged = ps.IsReady != ready;
             ps.IsReady = ready;
             ps.FailedToConnect = (reason == ConnectionEventReason.NotSupported) || (connectionEvent == ConnectionEvent.FailedToConnect);
+
+            bool reconnect = false;
             if (ps.AutoConnect && disconnected)
             {
                 if (reason == ConnectionEventReason.NotSupported)
@@ -273,7 +294,7 @@ namespace Systemic.Pixels.Unity.BluetoothLE
                 }
                 else
                 {
-                    InternalConnect(ps);
+                    reconnect = true;
                 }
             }
 
@@ -285,11 +306,13 @@ namespace Systemic.Pixels.Unity.BluetoothLE
                 //TODO handle error + wait on response before having peripheral set to ready
             }
 
-            onConnectionEvent(ps.ScannedPeripheral, ready);
-
-            if (ready)
+            if (statusChanged)
             {
-                ps.ConnectErrorHandler?.Invoke(NativeError.Empty);
+                onConnectionEvent(ps.ScannedPeripheral, ready);
+            }
+            if (reconnect)
+            {
+                InternalConnect(ps);
             }
         }
 

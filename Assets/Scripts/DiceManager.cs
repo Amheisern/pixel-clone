@@ -13,9 +13,6 @@ public class DiceManager : SingletonMonoBehaviour<DiceManager>
     public delegate void DieAddedRemovedEvent(EditDie editDie);
     public DieAddedRemovedEvent onDieAdded;
     public DieAddedRemovedEvent onWillRemoveDie;
-    public delegate void PoolRefreshEvent();
-    public PoolRefreshEvent onBeginRefreshPool;
-    public PoolRefreshEvent onEndRefreshPool;
 
     public IEnumerable<EditDie> allDice => dice;
 
@@ -143,7 +140,7 @@ public class DiceManager : SingletonMonoBehaviour<DiceManager>
     {
         while (state != State.Idle) yield return null;
         state = State.ConnectingDie;
-        yield return StartCoroutine(DoConnectDieCr(editDie, dieReadyCallback));
+        yield return DoConnectDieCr(editDie, dieReadyCallback);
         state = State.Idle;
     }
 
@@ -195,17 +192,13 @@ public class DiceManager : SingletonMonoBehaviour<DiceManager>
 
     public Coroutine DisconnectDie(EditDie editDie, System.Action<EditDie, bool, string> dieDisconnectedCallback)
     {
-        return StartCoroutine(DisconnectDieCr(editDie, dieDisconnectedCallback));
-    }
-
-    IEnumerator DisconnectDieCr(EditDie editDie, System.Action<EditDie, bool, string> dieDisconnectedCallback)
-    {
-        while (state != State.Idle) yield return null;
-        yield return StartCoroutine(DoDisconnectDieCr(editDie, dieDisconnectedCallback));
+        return StartCoroutine(DoDisconnectDieCr(editDie, dieDisconnectedCallback));
     }
 
     IEnumerator DoDisconnectDieCr(EditDie editDie, System.Action<EditDie, bool, string> dieDisconnectedCallback)
     {
+        while (state != State.Idle) yield return null;
+
         var dt = dice.First(p => p == editDie);
         if (dt == null)
         {
@@ -254,7 +247,7 @@ public class DiceManager : SingletonMonoBehaviour<DiceManager>
     {
         while (state != State.Idle) yield return null;
         state = State.ConnectingDie;
-        yield return StartCoroutine(DoConnectDiceListCr(editDice, callback));
+        yield return DoConnectDiceListCr(editDice, callback);
         state = State.Idle;
     }
 
@@ -312,63 +305,6 @@ public class DiceManager : SingletonMonoBehaviour<DiceManager>
         }
     }
 
-    public Coroutine RefreshPool()
-    {
-        return StartCoroutine(RefreshPoolCr());
-    }
-
-    IEnumerator RefreshPoolCr()
-    {
-        while (state != State.Idle) yield return null;
-        state = State.RefreshingPool;
-        onBeginRefreshPool?.Invoke();
-        foreach (var editDie in DiceManager.Instance.allDice)
-        {
-            bool dieConnected = false;
-            yield return StartCoroutine(DoConnectDieCr(editDie, (_, res, errorMsg) => dieConnected = res));
-
-            if (dieConnected)
-            {
-                // Fetch battery level
-                bool battLevelReceived = false;
-                editDie.die.GetBatteryLevel((d, f) => battLevelReceived = true);
-                yield return new WaitUntil(() => battLevelReceived == true);
-
-                // Fetch rssi
-                bool rssiReceived = false;
-                editDie.die.GetRssi((d, i) => rssiReceived = true);
-                yield return new WaitUntil(() => rssiReceived == true);
-
-                yield return StartCoroutine(DoDisconnectDieCr(editDie, null));
-            }
-            // Else we've already disconnected
-        }
-        onEndRefreshPool?.Invoke();
-        state = State.Idle;
-    }
-    
-    /// <summary>
-    /// Save our pool to JSON!
-    /// </sumary>
-    void UpdateDataSet()
-    {
-        // We only save the dice that we have indicated to be in the pool
-        // (i.e. ignore dice that are 'new' and we didn't connect to)
-        AppDataSet.Instance.dice.Clear();
-        foreach (var ourDie in dice)
-        {
-            if (ourDie.die != null)
-            {
-                // Update data in case it changed
-                ourDie.name = ourDie.die.name;
-                ourDie.deviceId = ourDie.die.deviceId;
-                ourDie.faceCount = ourDie.die.faceCount;
-                ourDie.designAndColor = ourDie.die.designAndColor;
-            }
-            AppDataSet.Instance.dice.Add(ourDie);
-        }
-    }
-
     void Awake()
     {
         DicePool.Instance.onDieDiscovered += OnDieDiscovered;
@@ -406,13 +342,13 @@ public class DiceManager : SingletonMonoBehaviour<DiceManager>
 #endif
         if (ourDie != null)
         {
-            Debug.Log($"Pairing discovered die: {die.address} - {die.deviceId} - {die.name}");
+            Debug.Log($"Pairing discovered die: {die.deviceId} - {die.name}");
             ourDie.die = die;
         }
         else
         {
             // Else this is a die we don't care about
-            Debug.Log($"Discovered die is unpaired: {die.address} - {die.deviceId} - {die.name}");
+            Debug.Log($"Discovered die is unpaired: {die.deviceId} - {die.name}");
         }
     }
 

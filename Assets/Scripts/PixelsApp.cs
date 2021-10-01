@@ -687,7 +687,7 @@ public class PixelsApp : SingletonMonoBehaviour<PixelsApp>
     {
         Debug.Log($"Running app version {AppConstants.Instance.AppVersion}");
 
-        while (Central.Instance.state != Central.State.Idle) yield return null;
+        while (!Systemic.Pixels.Unity.BluetoothLE.Central.IsReady) yield return null;
 
         // Pretend to have updated the current preset on load
         foreach (var die in AppDataSet.Instance.dice)

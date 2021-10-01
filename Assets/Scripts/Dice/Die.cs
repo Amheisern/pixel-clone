@@ -89,11 +89,11 @@ namespace Dice
             public byte batteryLevel; // 0 -> 255
         };
 
+        // name is stored on the gameObject itself
         public int faceCount { get; private set; } = 0;
         public DesignAndColor designAndColor { get; private set; } = DesignAndColor.Unknown;
         public uint deviceId { get; private set; } = 0;
         public string firmwareVersionId { get; private set; } = "Unknown";
-        public string address { get; private set; } = ""; // name is stored on the gameObject itself
         public uint dataSetHash { get; private set; } = 0;
         public uint flashSize { get; private set; } = 0;
 
@@ -175,30 +175,35 @@ namespace Dice
 
         public void Setup(
             string name,
-            string address,
             uint deviceId,
             int faceCount,
-            DesignAndColor design,
+            DesignAndColor designAndColor,
             out System.Action<ConnectionState> outConnectionSetter,
             out System.Action<LastError> outLastErrorSetter)
         {
-            bool appearanceChanged = faceCount != this.faceCount || design != this.designAndColor;
+            bool appearanceChanged = faceCount != this.faceCount || designAndColor != this.designAndColor;
             this.name = name;
-            this.address = address;
             this.deviceId = deviceId;
             this.faceCount = faceCount;
-            this.designAndColor = design;
+            this.designAndColor = designAndColor;
             if (appearanceChanged)
             {
-                OnAppearanceChanged?.Invoke(this, faceCount, designAndColor);
+                OnAppearanceChanged?.Invoke(this, faceCount, this.designAndColor);
             }
-            outConnectionSetter = SetConnectionState;
-            outLastErrorSetter = SetLastError;
-        }
-
-        public void UpdateAddress(string address)
-        {
-            this.address = address;
+            outConnectionSetter = newState =>
+            {
+                if (newState != connectionState)
+                {
+                    var oldState = connectionState;
+                    connectionState = newState;
+                    OnConnectionStateChanged?.Invoke(this, oldState, newState);
+                }
+            };
+            outLastErrorSetter = newError =>
+            {
+                lastError = newError;
+                OnError?.Invoke(this, newError);
+            };
         }
 
         public void UpdateAdvertisingData(int rssi, CustomAdvertisingData newData)
@@ -225,23 +230,6 @@ namespace Dice
             }
             OnRssiChanged?.Invoke(this, rssi);
         }
-
-        void SetConnectionState(ConnectionState newState)
-        {
-            if (newState != connectionState)
-            {
-                var oldState = connectionState;
-                connectionState = newState;
-                OnConnectionStateChanged?.Invoke(this, oldState, newState);
-            }
-        }
-
-        void SetLastError(LastError newError)
-        {
-            lastError = newError;
-            OnError?.Invoke(this, newError);
-        }
-
         public void UpdateInfo(System.Action<Die, bool> onInfoUpdatedCallback)
         {
             if (connectionState == ConnectionState.Identifying)

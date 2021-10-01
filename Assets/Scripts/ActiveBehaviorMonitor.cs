@@ -15,12 +15,6 @@ public class ActiveBehaviorMonitor : MonoBehaviour
         PixelsApp.Instance.onDieBehaviorUpdatedEvent += OnBehaviorDownloadedEvent;
     }
 
-    // Update is called once per frame
-    void Update()
-    {
-        
-    }
-
     void OnBehaviorDownloadedEvent(Dice.EditDie die, Behaviors.EditBehavior behavior)
     {
         // Check whether we should stay connected to some of the dice

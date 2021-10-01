@@ -33,7 +33,10 @@ public class UIScanView
 
     IEnumerator BeginScanCr()
     {
-        while (Central.Instance.state != Central.State.Idle) yield return null;
+        while (!Systemic.Pixels.Unity.BluetoothLE.Central.IsReady)
+        {
+            yield return null;
+        }
         DicePool.Instance.onDieDiscovered += OnDieDiscovered;
         DicePool.Instance.BeginScanForDice();
         pairSelectedDice.SetActive(false);

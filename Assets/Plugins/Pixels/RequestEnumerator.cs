@@ -3,11 +3,6 @@ using UnityEngine;
 
 namespace Systemic.Pixels.Unity.BluetoothLE
 {
-    //TODO Expose error code
-    public class RequestError
-    {
-    }
-
     public enum Operation
     {
         ConnectPeripheral,
@@ -33,6 +28,10 @@ namespace Systemic.Pixels.Unity.BluetoothLE
         public bool IsSuccess => _error.HasValue && _error.Value.IsEmpty;
 
         public bool IsTimedOut => _isTimedOut = _isTimedOut || (Time.realtimeSinceStartupAsDouble >= _timeout);
+
+        public int ErrorCode => _error?.Code ?? 0;
+
+        public string ErrorMessage => _error?.Message;
 
         public override bool keepWaiting => Run();
 
