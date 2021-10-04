@@ -48,7 +48,7 @@ public class UIDicePoolView
         }
         foreach (var editDie in connectedDice)
         {
-            DiceManager.Instance.DisconnectDie(editDie, null);
+            DicePool.Instance.DisconnectDie(editDie, null);
         }
         connectedDice.Clear();
     }
@@ -57,17 +57,16 @@ public class UIDicePoolView
     {
         base.SetupHeader(true, false, "Dice Bag", null);
         RefreshView();
-        DiceManager.Instance.onDieAdded += OnDieAdded;
-        DiceManager.Instance.onWillRemoveDie += OnWillRemoveDie;
+
+        DicePool.onDieAdded += OnDieAdded;
+        DicePool.onWillRemoveDie += OnWillRemoveDie;
     }
 
     void OnDisable()
     {
-        if (DiceManager.Instance != null)
-        {
-            DiceManager.Instance.onDieAdded -= OnDieAdded;
-            DiceManager.Instance.onWillRemoveDie -= OnWillRemoveDie;
-        }
+        DicePool.onDieAdded -= OnDieAdded;
+        DicePool.onWillRemoveDie -= OnWillRemoveDie;
+
         foreach (var uidie in pairedDice)
         {
             DestroyPairedDie(uidie);
@@ -100,7 +99,7 @@ public class UIDicePoolView
     {
         // Assume all pool dice will be destroyed
         var toDestroy = new List<UIPairedDieToken>(pairedDice);
-        foreach (var die in DiceManager.Instance.allDice)
+        foreach (var die in DicePool.Instance.allDice)
         {
             int prevIndex = toDestroy.FindIndex(uid => uid.die == die);
             if (prevIndex == -1)
@@ -129,7 +128,7 @@ public class UIDicePoolView
         if (!connectedDice.Contains(editDie))
         {
             connectedDice.Add(editDie);
-            DiceManager.Instance.ConnectDie(editDie, null);
+            DicePool.Instance.ConnectDie(editDie, null);
         }
         RefreshView();
     }
@@ -158,13 +157,13 @@ public class UIDicePoolView
         {
             OnBeginRefreshPool();
             allDiceCopy.Clear();
-            allDiceCopy.AddRange(DiceManager.Instance.allDice.Where(d => d.die == null || d.die.connectionState == Die.ConnectionState.Available));
+            allDiceCopy.AddRange(DicePool.Instance.allDice.Where(d => d.die == null || d.die.connectionState == ConnectionState.Available));
             bool connected = false;
-            DiceManager.Instance.ConnectDiceList(allDiceCopy, () => connected = true);
+            DicePool.Instance.ConnectDiceList(allDiceCopy, () => connected = true);
             yield return new WaitUntil(() => connected);
             foreach (var editDie in allDiceCopy)
             {
-                if (editDie.die != null && editDie.die.connectionState == Die.ConnectionState.Ready)
+                if (editDie.die != null && editDie.die.connectionState == ConnectionState.Ready)
                 {
                     connectedDice.Add(editDie);
                     RefreshView();

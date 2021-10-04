@@ -49,10 +49,10 @@ public class SpeakNumber : MonoBehaviour
 
 
 
-    void OnDieStateChanged(Die die, Die.RollState newState, int newFace)
+    void OnDieStateChanged(Die die, RollState newState, int newFace)
     {
         numberText.text = (newFace + 1).ToString();
-        if (newState == Die.RollState.OnFace)
+        if (newState == RollState.OnFace)
         {
             Debug.Log("New Face: " + newFace);
             source.PlayOneShot(numbers[newFace]);

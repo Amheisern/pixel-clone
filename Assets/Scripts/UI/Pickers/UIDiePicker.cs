@@ -44,7 +44,7 @@ public class UIDiePicker : MonoBehaviour
             dieSelector = d => true;
         }
 
-        var allDice = DiceManager.Instance.allDice.Where(dieSelector);
+        var allDice = DicePool.Instance.allDice.Where(dieSelector);
         if (allDice.Count() > 0)
         {
             noPairedDice.gameObject.SetActive(false);
@@ -59,7 +59,7 @@ public class UIDiePicker : MonoBehaviour
         }
         else
         {
-            if (DiceManager.Instance.allDice.Count() > 0)
+            if (DicePool.Instance.allDice.Count() > 0)
             {
                 noPairedDice.gameObject.SetActive(false);
                 notEnoughPairedDice.gameObject.SetActive(true);

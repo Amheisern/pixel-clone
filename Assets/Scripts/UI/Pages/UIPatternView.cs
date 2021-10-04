@@ -56,7 +56,7 @@ public class UIPatternView
         if (previewDie != null)
         {
             previewDie.die.SetStandardMode();
-            DiceManager.Instance.DisconnectDie(previewDie, null);
+            DicePool.Instance.DisconnectDie(previewDie, null);
             previewDie = null;
             previewDieConnected = false;
         }
@@ -162,7 +162,7 @@ public class UIPatternView
             if (!previewDieConnected)
             {
                 string error = null;
-                yield return DiceManager.Instance.ConnectDie(previewDie, (_, res, errorMsg) =>
+                yield return DicePool.Instance.ConnectDie(previewDie, (_, res, errorMsg) =>
                 {
                     previewDieConnected = res;
                     error = errorMsg;

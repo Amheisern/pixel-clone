@@ -1,10 +1,10 @@
 ﻿using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
-using Animations;
-using System.Text;
 using System.Runtime.InteropServices;
-using System.Threading;
+
+using Central = Systemic.Pixels.Unity.BluetoothLE.Central;
+using Peripheral = Systemic.Pixels.Unity.BluetoothLE.ScannedPeripheral;
 
 namespace Dice
 {
@@ -25,33 +25,33 @@ namespace Dice
         Aurora_Sky
     }
 
+    public enum RollState : byte
+    {
+        Unknown = 0,
+        OnFace,
+        Handling,
+        Rolling,
+        Crooked
+    };
+
+    public enum ConnectionState
+    {
+        Invalid = -1,   // This is the value right after creation
+        Available,      // This is a die we knew about and scanned
+        Connecting,     // This die is in the process of being connected to
+        Identifying,    // Getting info from the die, making sure it is valid to be used (right firmware, etc...)
+        Ready,          // Die is ready for general use
+        Disconnecting,  // We are currently disconnecting from this die
+    }
+
     public partial class Die
         : MonoBehaviour
     {
-        public enum RollState : byte
-        {
-            Unknown = 0,
-            OnFace,
-            Handling,
-            Rolling,
-            Crooked
-        };
-
-        public enum ConnectionState
-        {
-            Invalid = -1,   // This is the value right after creation
-            Available,      // This is a die we knew about and scanned
-            Connecting,     // This die is in the process of being connected to
-            Identifying,    // Getting info from the die, making sure it is valid to be used (right firmware, etc...)
-            Ready,          // Die is ready for general use
-            Disconnecting,  // We are currently disconnecting from this die
-        }
-
         ConnectionState _connectionState = ConnectionState.Invalid; // Use property to change value
         public ConnectionState connectionState
         {
             get => _connectionState;
-            private set
+            protected set
             {
                 if (value != _connectionState)
                 {
@@ -68,13 +68,13 @@ namespace Dice
             Disconnected
         }
 
-        public LastError lastError { get; private set; } = LastError.None;
+        public LastError lastError { get; protected set; } = LastError.None;
 
         /// <summary>
         /// This data structure mirrors the data in firmware/bluetooth/bluetooth_stack.cpp
         /// </sumary>
         [StructLayout(LayoutKind.Sequential, Pack = 1)]
-        public struct CustomAdvertisingData
+        public struct PixelAdvertisingData
         {
             // Die type identification
             public DesignAndColor designAndColor; // Physical look, also only 8 bits
@@ -84,25 +84,25 @@ namespace Dice
             public uint deviceId;
 
             // Current state
-            public Die.RollState rollState; // Indicates whether the dice is being shaken
+            public RollState rollState; // Indicates whether the dice is being shaken
             public byte currentFace; // Which face is currently up
             public byte batteryLevel; // 0 -> 255
         };
 
         // name is stored on the gameObject itself
-        public int faceCount { get; private set; } = 0;
-        public DesignAndColor designAndColor { get; private set; } = DesignAndColor.Unknown;
-        public uint deviceId { get; private set; } = 0;
-        public string firmwareVersionId { get; private set; } = "Unknown";
-        public uint dataSetHash { get; private set; } = 0;
-        public uint flashSize { get; private set; } = 0;
+        public int faceCount { get; protected set; } = 0;
+        public DesignAndColor designAndColor { get; protected set; } = DesignAndColor.Unknown;
+        public uint deviceId { get; protected set; } = 0;
+        public string firmwareVersionId { get; protected set; } = "Unknown";
+        public uint dataSetHash { get; protected set; } = 0;
+        public uint flashSize { get; protected set; } = 0;
 
-        public RollState state { get; private set; } = RollState.Unknown;
-        public int face { get; private set; } = -1;
+        public RollState state { get; protected set; } = RollState.Unknown;
+        public int face { get; protected set; } = -1;
 
-        public float? batteryLevel { get; private set; } = null;
-        public bool? charging { get; private set; } = null;
-        public int? rssi { get; private set; } = null;
+        public float? batteryLevel { get; protected set; } = null;
+        public bool? charging { get; protected set; } = null;
+        public int? rssi { get; protected set; } = null;
 
         public delegate void TelemetryEvent(Die die, AccelFrame frame);
         public TelemetryEvent _TelemetryReceived;
@@ -173,86 +173,6 @@ namespace Dice
             messageDelegates.Add(DieMessageType.PlaySound, OnPlayAudioClip);
         }
 
-        public void Setup(
-            string name,
-            uint deviceId,
-            int faceCount,
-            DesignAndColor designAndColor,
-            out System.Action<ConnectionState> outConnectionSetter,
-            out System.Action<LastError> outLastErrorSetter)
-        {
-            bool appearanceChanged = faceCount != this.faceCount || designAndColor != this.designAndColor;
-            this.name = name;
-            this.deviceId = deviceId;
-            this.faceCount = faceCount;
-            this.designAndColor = designAndColor;
-            if (appearanceChanged)
-            {
-                OnAppearanceChanged?.Invoke(this, faceCount, this.designAndColor);
-            }
-            outConnectionSetter = newState =>
-            {
-                if (newState != connectionState)
-                {
-                    var oldState = connectionState;
-                    connectionState = newState;
-                    OnConnectionStateChanged?.Invoke(this, oldState, newState);
-                }
-            };
-            outLastErrorSetter = newError =>
-            {
-                lastError = newError;
-                OnError?.Invoke(this, newError);
-            };
-        }
-
-        public void UpdateAdvertisingData(int rssi, CustomAdvertisingData newData)
-        {
-            bool appearanceChanged = faceCount != newData.faceCount || designAndColor != newData.designAndColor;
-            bool rollStateChanged = state != newData.rollState || face != newData.currentFace;
-            faceCount = newData.faceCount;
-            designAndColor = newData.designAndColor;
-            deviceId = newData.deviceId;
-            state = newData.rollState;
-            face = newData.currentFace;
-            batteryLevel = (float)newData.batteryLevel / 255.0f;
-            this.rssi = rssi;
-
-            // Trigger callbacks
-            OnBatteryLevelChanged?.Invoke(this, batteryLevel, charging);
-            if (appearanceChanged)
-            {
-                OnAppearanceChanged?.Invoke(this, faceCount, designAndColor);
-            }
-            if (rollStateChanged)
-            {
-                OnStateChanged?.Invoke(this, state, face);
-            }
-            OnRssiChanged?.Invoke(this, rssi);
-        }
-        public void UpdateInfo(System.Action<Die, bool> onInfoUpdatedCallback)
-        {
-            if (connectionState == ConnectionState.Identifying)
-            {
-                StartCoroutine(UpdateInfoCr(onInfoUpdatedCallback));
-            }
-            else
-            {
-                onInfoUpdatedCallback?.Invoke(this, false);
-            }
-        }
-
-        IEnumerator UpdateInfoCr(System.Action<Die, bool> onInfoUpdatedCallback)
-        {
-            // Ask the die who it is!
-            yield return GetDieInfo(null);
-
-            // Ping the die so we know its initial state
-            yield return Ping();
-
-            onInfoUpdatedCallback?.Invoke(this, true);
-        }
-
         public void OnData(byte[] data)
         {
             // Process the message coming from the actual die!
@@ -267,6 +187,5 @@ namespace Dice
                 }
             }
         }
-
     }
 }

@@ -24,14 +24,14 @@ public class UILiveView
     {
         base.Enter(context);
         watchedDice.Clear();
-        watchedDice.AddRange(DiceManager.Instance.allDice);
-        DiceManager.Instance.ConnectDiceList(watchedDice, null);
+        watchedDice.AddRange(DicePool.Instance.allDice);
+        DicePool.Instance.ConnectDiceList(watchedDice, null);
     }
 
     public override void Leave()
     {
         base.Leave();
-        watchedDice.ForEach(d => DiceManager.Instance.DisconnectDie(d, null));
+        watchedDice.ForEach(d => DicePool.Instance.DisconnectDie(d, null));
         watchedDice.Clear();
     }
 

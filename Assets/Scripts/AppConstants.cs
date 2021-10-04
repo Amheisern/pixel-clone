@@ -19,5 +19,8 @@ public class AppConstants : SingletonMonoBehaviour<AppConstants>
     public float DicePoolDisconnectDelay = 5.0f;
     public string AudioClipsFolderName = "AudioClips";
     public Color AudioClipsWaveformColor = Color.blue;
+
+    // Not editable:
+    public static bool FindDiceByDeviceId { get; } = true; // false when using Windows BLE win32 manager
 }
 

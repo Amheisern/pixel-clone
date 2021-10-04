@@ -1,8 +1,4 @@
-﻿using System.Collections;
-using System.Collections.Generic;
-using UnityEngine;
-using Newtonsoft.Json;
-using Newtonsoft.Json.Linq;
+﻿using Newtonsoft.Json;
 
 namespace Dice
 {
@@ -13,37 +9,14 @@ namespace Dice
         public ulong deviceId;
         public int faceCount; // Which kind of dice this is
         public DesignAndColor designAndColor; // Physical look
+        public int currentBehaviorIndex;
 
         [JsonIgnore]
         public Behaviors.EditBehavior currentBehavior;
-        public int currentBehaviorIndex;
-
-        public delegate void DieFoundLostEvent(EditDie editDie);
-        [JsonIgnore]
-        public DieFoundLostEvent onDieFound;
-        [JsonIgnore]
-        public DieFoundLostEvent onDieWillBeLost;
 
         [JsonIgnore]
-        public Die die
-        {
-            get { return _die; }
-            set
-            {
-                if (_die != null)
-                {
-                    onDieWillBeLost?.Invoke(this);
-                }
-                _die = value;
-                if (_die != null)
-                {
-                    // We should check die information (name, design, hash)
-                    onDieFound?.Invoke(this);
-                }
-            }
-        }
-        [JsonIgnore]
-        Die _die;
+        // Helper getter
+        public Die die => DicePool.Instance?.GetDieForEditDie(this);
 
         public void OnBeforeSerialize()
         {

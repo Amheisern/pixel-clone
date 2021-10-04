@@ -359,7 +359,7 @@ namespace Dice
         : IDieMessage
     {
         public DieMessageType type { get; set; } = DieMessageType.State;
-        public Die.RollState state;
+        public RollState state;
         public byte face;
     }
 
