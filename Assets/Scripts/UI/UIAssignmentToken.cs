@@ -90,7 +90,7 @@ public class UIAssignmentToken : MonoBehaviour
             this.dieRenderer = null;
         }
 
-        var design = DesignAndColor.Unknown;
+        var design = DieDesignAndColor.Unknown;
         var dName = "Missing Die";
         if (editAssignment.die != null)
         {

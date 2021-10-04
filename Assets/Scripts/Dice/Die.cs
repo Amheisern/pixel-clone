@@ -8,7 +8,7 @@ using Peripheral = Systemic.Pixels.Unity.BluetoothLE.ScannedPeripheral;
 
 namespace Dice
 {
-    public enum DesignAndColor : byte
+    public enum DieDesignAndColor : byte
     {
         Unknown = 0,
         Generic,
@@ -25,7 +25,7 @@ namespace Dice
         Aurora_Sky
     }
 
-    public enum RollState : byte
+    public enum DieRollState : byte
     {
         Unknown = 0,
         OnFace,
@@ -34,7 +34,7 @@ namespace Dice
         Crooked
     };
 
-    public enum ConnectionState
+    public enum DieConnectionState
     {
         Invalid = -1,   // This is the value right after creation
         Available,      // This is a die we knew about and scanned
@@ -44,11 +44,18 @@ namespace Dice
         Disconnecting,  // We are currently disconnecting from this die
     }
 
-    public partial class Die
+    public enum DieLastError
+    {
+        None = 0,
+        ConnectionError,
+        Disconnected
+    }
+
+    public abstract partial class Die
         : MonoBehaviour
     {
-        ConnectionState _connectionState = ConnectionState.Invalid; // Use property to change value
-        public ConnectionState connectionState
+        DieConnectionState _connectionState = DieConnectionState.Invalid; // Use property to change value
+        public DieConnectionState connectionState
         {
             get => _connectionState;
             protected set
@@ -61,43 +68,17 @@ namespace Dice
             }
         }
 
-        public enum LastError
-        {
-            None = 0,
-            ConnectionError,
-            Disconnected
-        }
-
-        public LastError lastError { get; protected set; } = LastError.None;
-
-        /// <summary>
-        /// This data structure mirrors the data in firmware/bluetooth/bluetooth_stack.cpp
-        /// </sumary>
-        [StructLayout(LayoutKind.Sequential, Pack = 1)]
-        public struct PixelAdvertisingData
-        {
-            // Die type identification
-            public DesignAndColor designAndColor; // Physical look, also only 8 bits
-            public byte faceCount; // Which kind of dice this is
-
-            // Device ID
-            public uint deviceId;
-
-            // Current state
-            public RollState rollState; // Indicates whether the dice is being shaken
-            public byte currentFace; // Which face is currently up
-            public byte batteryLevel; // 0 -> 255
-        };
+        public DieLastError lastError { get; protected set; } = DieLastError.None;
 
         // name is stored on the gameObject itself
         public int faceCount { get; protected set; } = 0;
-        public DesignAndColor designAndColor { get; protected set; } = DesignAndColor.Unknown;
+        public DieDesignAndColor designAndColor { get; protected set; } = DieDesignAndColor.Unknown;
         public uint deviceId { get; protected set; } = 0;
         public string firmwareVersionId { get; protected set; } = "Unknown";
         public uint dataSetHash { get; protected set; } = 0;
         public uint flashSize { get; protected set; } = 0;
 
-        public RollState state { get; protected set; } = RollState.Unknown;
+        public DieRollState state { get; protected set; } = DieRollState.Unknown;
         public int face { get; protected set; } = -1;
 
         public float? batteryLevel { get; protected set; } = null;
@@ -122,7 +103,7 @@ namespace Dice
                 _TelemetryReceived -= value;
                 if (_TelemetryReceived == null || _TelemetryReceived.GetInvocationList().Length == 0)
                 {
-                    if (connectionState == ConnectionState.Ready)
+                    if (connectionState == DieConnectionState.Ready)
                     {
                         // Unregister from the die telemetry
                         RequestTelemetry(false);
@@ -132,19 +113,19 @@ namespace Dice
             }
         }
 
-        public delegate void StateChangedEvent(Die die, RollState newState, int newFace);
+        public delegate void StateChangedEvent(Die die, DieRollState newState, int newFace);
         public StateChangedEvent OnStateChanged;
 
-        public delegate void ConnectionStateChangedEvent(Die die, ConnectionState oldState, ConnectionState newState);
+        public delegate void ConnectionStateChangedEvent(Die die, DieConnectionState oldState, DieConnectionState newState);
         public ConnectionStateChangedEvent OnConnectionStateChanged;
 
-        public delegate void ErrorEvent(Die die, LastError error);
+        public delegate void ErrorEvent(Die die, DieLastError error);
         public ErrorEvent OnError;
 
         public delegate void SettingsChangedEvent(Die die);
         public SettingsChangedEvent OnSettingsChanged;
 
-        public delegate void AppearanceChangedEvent(Die die, int newFaceCount, DesignAndColor newDesign);
+        public delegate void AppearanceChangedEvent(Die die, int newFaceCount, DieDesignAndColor newDesign);
         public AppearanceChangedEvent OnAppearanceChanged;
 
         public delegate void BatteryLevelChangedEvent(Die die, float? level, bool? charging);
@@ -153,13 +134,9 @@ namespace Dice
         public delegate void RssiChangedEvent(Die die1, int? rssi);
         public RssiChangedEvent OnRssiChanged;
 
-        // Lock so that only one 'operation' can happen at a time on a die
-        // Note: lock is not a real multithreaded lock!
-        bool bluetoothOperationInProgress = false;
-
         // Internal delegate per message type
-        delegate void MessageReceivedDelegate(IDieMessage msg);
-        Dictionary<DieMessageType, MessageReceivedDelegate> messageDelegates;
+        protected delegate void MessageReceivedDelegate(IDieMessage msg);
+        protected Dictionary<DieMessageType, MessageReceivedDelegate> messageDelegates;
 
         void Awake()
         {
@@ -173,19 +150,6 @@ namespace Dice
             messageDelegates.Add(DieMessageType.PlaySound, OnPlayAudioClip);
         }
 
-        public void OnData(byte[] data)
-        {
-            // Process the message coming from the actual die!
-            var message = DieMessages.FromByteArray(data);
-            if (message != null)
-            {
-                Debug.Log("Got message of type " + message.GetType());
-
-                if (messageDelegates.TryGetValue(message.type, out MessageReceivedDelegate del))
-                {
-                    del.Invoke(message);
-                }
-            }
-        }
+        protected abstract void WriteData(byte[] bytes, System.Action<Die, bool, string> onWriteResult);
     }
 }

@@ -55,9 +55,9 @@ public class UIPresetView : UIPage
         base.SetupHeader(false, false, preset.name, SetName);
         editPreset = preset;
         presetDescriptionText.text = editPreset.description;
-        var designs = new List<DesignAndColor>(preset.dieAssignments.Select(ass =>
+        var designs = new List<DieDesignAndColor>(preset.dieAssignments.Select(ass =>
         {
-            return (ass.die != null) ? ass.die.designAndColor : DesignAndColor.Unknown;
+            return (ass.die != null) ? ass.die.designAndColor : DieDesignAndColor.Unknown;
         }));
 
         this.dieRenderer = DiceRendererManager.Instance.CreateMultiDiceRenderer(designs, 400);

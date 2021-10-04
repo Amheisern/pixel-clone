@@ -208,21 +208,22 @@ namespace Systemic.Pixels.Unity.BluetoothLE
 
         public static void ClearScannedList()
         {
-            lock (_peripherals)
-            {
-                var keysToRemove = _peripherals.Where(kv => kv.Value.PeripheralHandle.IsEmpty).Select(kv => kv.Key).ToArray();
-                if (keysToRemove.Length == _peripherals.Count)
-                {
-                    _peripherals.Clear();
-                }
-                else
-                {
-                    foreach (var k in keysToRemove)
-                    {
-                        _peripherals.Remove(k);
-                    }
-                }
-            }
+            //TODO prevent from using previously scanned peripheral
+            //lock (_peripherals)
+            //{
+            //    var keysToRemove = _peripherals.Where(kv => kv.Value.PeripheralHandle.IsEmpty).Select(kv => kv.Key).ToArray();
+            //    if (keysToRemove.Length == _peripherals.Count)
+            //    {
+            //        _peripherals.Clear();
+            //    }
+            //    else
+            //    {
+            //        foreach (var k in keysToRemove)
+            //        {
+            //            _peripherals.Remove(k);
+            //        }
+            //    }
+            //}
         }
 
         public static RequestEnumerator ConnectPeripheralAsync(ScannedPeripheral peripheral, Action<ScannedPeripheral, bool> onConnectionEvent)
@@ -421,7 +422,7 @@ namespace Systemic.Pixels.Unity.BluetoothLE
             lock (_peripherals)
             {
                 _peripherals.TryGetValue(scannedPeripheral.SystemId, out PeripheralState ps);
-                return ps ?? throw new ArgumentException(nameof(scannedPeripheral));
+                return ps ?? throw new ArgumentException(nameof(scannedPeripheral), $"No peripheral found with SystemId={scannedPeripheral.SystemId}");
             }
         }
     }

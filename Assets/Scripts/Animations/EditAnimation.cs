@@ -17,7 +17,7 @@ namespace Animations
     {
         public string name;
 		public abstract float duration { get; set; }
-        public PreviewSettings defaultPreviewSettings = new PreviewSettings() { design = Dice.DesignAndColor.V5_Grey };
+        public PreviewSettings defaultPreviewSettings = new PreviewSettings() { design = Dice.DieDesignAndColor.V5_Grey };
 
         [JsonIgnore]
         public abstract AnimationType type { get; }

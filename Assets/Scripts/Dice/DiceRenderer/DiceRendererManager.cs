@@ -16,7 +16,7 @@ public class DiceRendererManager : SingletonMonoBehaviour<DiceRendererManager>
     readonly DiceRenderer[] visibleRenderers = new DiceRenderer[visibleLayerCount];
     readonly List<DiceRenderer> allRenderers = new List<DiceRenderer>();
 
-    public SingleDiceRenderer CreateDiceRenderer(Dice.DesignAndColor variant, int widthHeight = 256)
+    public SingleDiceRenderer CreateDiceRenderer(Dice.DieDesignAndColor variant, int widthHeight = 256)
     {
         var singleRenderer = GameObject.Instantiate<SingleDiceRenderer>(DiceRendererPrefab, Vector3.zero, Quaternion.identity, transform);
         allRenderers.Add(singleRenderer);
@@ -28,7 +28,7 @@ public class DiceRendererManager : SingletonMonoBehaviour<DiceRendererManager>
         return singleRenderer;
     }
 
-    public MultiDiceRenderer CreateMultiDiceRenderer(List<Dice.DesignAndColor> variants, int widthHeight = 256)
+    public MultiDiceRenderer CreateMultiDiceRenderer(List<Dice.DieDesignAndColor> variants, int widthHeight = 256)
     {
         var multiRenderer = GameObject.Instantiate<MultiDiceRenderer>(MultiDiceRendererPrefab, Vector3.zero, Quaternion.identity, transform);
         allRenderers.Add(multiRenderer);

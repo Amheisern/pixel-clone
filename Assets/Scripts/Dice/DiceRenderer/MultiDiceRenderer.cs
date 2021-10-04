@@ -23,7 +23,7 @@ public class MultiDiceRenderer : DiceRenderer
     /// <summary>
     /// Called after instantiation to setup the camera, render texture, etc...
     /// </sumary>
-    public void Setup(List<Dice.DesignAndColor> variants, int widthHeight)
+    public void Setup(List<Dice.DieDesignAndColor> variants, int widthHeight)
     {
         base.Setup(widthHeight);
 

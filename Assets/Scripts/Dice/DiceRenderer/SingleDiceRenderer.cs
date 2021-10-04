@@ -25,7 +25,7 @@ public class SingleDiceRenderer : DiceRenderer
     /// <summary>
     /// Called after instantiation to setup the camera, render texture, etc...
     /// </sumary>
-    public void Setup(Dice.DesignAndColor variant, int widthHeight)
+    public void Setup(Dice.DieDesignAndColor variant, int widthHeight)
     {
         base.Setup(widthHeight);
         initialTilt = cameraTiltRoot.localEulerAngles.x;

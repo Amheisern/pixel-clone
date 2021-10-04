@@ -157,13 +157,13 @@ public class UIDicePoolView
         {
             OnBeginRefreshPool();
             allDiceCopy.Clear();
-            allDiceCopy.AddRange(DicePool.Instance.allDice.Where(d => d.die == null || d.die.connectionState == ConnectionState.Available));
+            allDiceCopy.AddRange(DicePool.Instance.allDice.Where(d => d.die == null || d.die.connectionState == DieConnectionState.Available));
             bool connected = false;
             DicePool.Instance.ConnectDiceList(allDiceCopy, () => connected = true);
             yield return new WaitUntil(() => connected);
             foreach (var editDie in allDiceCopy)
             {
-                if (editDie.die != null && editDie.die.connectionState == ConnectionState.Ready)
+                if (editDie.die != null && editDie.die.connectionState == DieConnectionState.Ready)
                 {
                     connectedDice.Add(editDie);
                     RefreshView();

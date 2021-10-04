@@ -341,7 +341,7 @@ namespace Dice
         public DieMessageType type { get; set; } = DieMessageType.IAmADie;
 
         public byte faceCount; // Which kind of dice this is
-        public DesignAndColor designAndColor; // Physical look
+        public DieDesignAndColor designAndColor; // Physical look
         public byte padding;
         public uint dataSetHash;
         public uint deviceId; // A unique identifier
@@ -359,7 +359,7 @@ namespace Dice
         : IDieMessage
     {
         public DieMessageType type { get; set; } = DieMessageType.State;
-        public RollState state;
+        public DieRollState state;
         public byte face;
     }
 
@@ -781,7 +781,7 @@ namespace Dice
     : IDieMessage
     {
         public DieMessageType type { get; set; } = DieMessageType.SetDesignAndColor;
-        public DesignAndColor designAndColor;
+        public DieDesignAndColor designAndColor;
     }
 
     [StructLayout(LayoutKind.Sequential, Pack = 1)]

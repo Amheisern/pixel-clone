@@ -8,7 +8,7 @@ namespace Dice
         public string name;
         public ulong deviceId;
         public int faceCount; // Which kind of dice this is
-        public DesignAndColor designAndColor; // Physical look
+        public DieDesignAndColor designAndColor; // Physical look
         public int currentBehaviorIndex;
 
         [JsonIgnore]

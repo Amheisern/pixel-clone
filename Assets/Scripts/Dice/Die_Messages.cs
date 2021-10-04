@@ -42,8 +42,7 @@ namespace Dice
         {
             Debug.Log($"Posting message of type {message.GetType()}");
 
-            byte[] msgBytes = DieMessages.ToByteArray(message);
-            DicePool.Instance.RawWriteDie(this, msgBytes);
+            WriteData(DieMessages.ToByteArray(message), null);
         }
 
         IEnumerator WaitForMessageCr(DieMessageType msgType, System.Action<IDieMessage> msgReceivedCallback)
@@ -68,15 +67,14 @@ namespace Dice
         IEnumerator SendMessageWithAckOrTimeoutCr<T>(T message, DieMessageType ackType, float timeOut, System.Action<IDieMessage> ackAction, System.Action timeoutAction)
             where T : IDieMessage
         {
-            Debug.Log($"Sending message with ack of type {message.GetType()}");
+            Debug.Log($"Sending message with ACK of type {message.GetType()}");
 
             IDieMessage ackMessage = null;
             float startTime = Time.time;
             void callback(IDieMessage ackMsg) => ackMessage = ackMsg;
 
             AddMessageHandler(ackType, callback);
-            byte[] msgBytes = DieMessages.ToByteArray(message);
-            DicePool.Instance.RawWriteDie(this, msgBytes);
+            WriteData(DieMessages.ToByteArray(message), null);
             while (ackMessage == null && Time.time < startTime + timeOut)
             {
                 yield return null;
@@ -113,90 +111,43 @@ namespace Dice
             }
         }
 
-        Coroutine PerformBluetoothOperation(IEnumerator operationCr)
-        {
-            return StartCoroutine(PerformBluetoothOperationCr(operationCr));
-        }
-
-        Coroutine PerformBluetoothOperation(System.Action action)
-        {
-            return StartCoroutine(PerformBluetoothOperationCr(PerformActioShimCr(action)));
-        }
-
-        IEnumerator PerformActioShimCr(System.Action action)
-        {
-            action();
-            yield break;
-        }
-
-        IEnumerator PerformBluetoothOperationCr(IEnumerator operationCr)
-        {
-            if (connectionState >= ConnectionState.Identifying)
-            {
-                while (bluetoothOperationInProgress)
-                {
-                    // Busy, wait until we can talk to the die
-                    yield return null;
-                }
-                try
-                {
-                    bluetoothOperationInProgress = true;
-                    // Attach to the error event
-                    yield return StartCoroutine(operationCr);
-                }
-                finally
-                {
-                    bluetoothOperationInProgress = false;
-                }
-            }
-            else
-            {
-                throw new System.Exception("Die not connected");
-            }
-        }
-
         #endregion
 
-        public Coroutine PlayAnimation(int animationIndex)
+        public void PlayAnimation(int animationIndex)
         {
-            return PerformBluetoothOperation(() => PostMessage(new DieMessagePlayAnim() { index = (byte)animationIndex }));
+            PostMessage(new DieMessagePlayAnim() { index = (byte)animationIndex });
         }
 
-        public Coroutine PlayAnimation(int animationIndex, int remapFace, bool loop)
+        public void PlayAnimation(int animationIndex, int remapFace, bool loop)
         {
-            return PerformBluetoothOperation(() => PostMessage(new DieMessagePlayAnim()
+            PostMessage(new DieMessagePlayAnim()
             {
                 index = (byte)animationIndex,
                 remapFace = (byte)remapFace,
                 loop = loop ? (byte)1 : (byte)0
-            }));
+            });
         }
 
-        public Coroutine StopAnimation(int animationIndex, int remapIndex)
+        public void StopAnimation(int animationIndex, int remapIndex)
         {
-            return PerformBluetoothOperation(() => PostMessage(new DieMessageStopAnim()
+            PostMessage(new DieMessageStopAnim()
             {
                 index = (byte)animationIndex,
                 remapFace = (byte)remapIndex,
-            }));
+            });
         }
 
-        public Coroutine StartAttractMode()
+        public void StartAttractMode()
         {
-            return PerformBluetoothOperation(() => PostMessage(new DieMessageAttractMode()));
+            PostMessage(new DieMessageAttractMode());
         }
 
-        public Coroutine Ping()
+        public void Ping()
         {
-            return PerformBluetoothOperation(() => PostMessage(new DieMessageRequestState()));
+            PostMessage(new DieMessageRequestState());
         }
 
         public Coroutine GetDieInfo(System.Action<bool> callback)
-        {
-            return PerformBluetoothOperation(GetDieInfoCr(callback));
-        }
-
-        IEnumerator GetDieInfoCr(System.Action<bool> callback)
         {
             void updateDieInfo(IDieMessage msg)
             {
@@ -217,50 +168,45 @@ namespace Dice
             }
 
             var whoAreYouMsg = new DieMessageWhoAreYou();
-            yield return StartCoroutine(SendMessageWithAckOrTimeoutCr(whoAreYouMsg, DieMessageType.IAmADie, 5, updateDieInfo, () => callback?.Invoke(false)));
+            return StartCoroutine(SendMessageWithAckOrTimeoutCr(whoAreYouMsg, DieMessageType.IAmADie, 5, updateDieInfo, () => callback?.Invoke(false)));
         }
 
-        public Coroutine RequestTelemetry(bool on)
+        public void RequestTelemetry(bool on)
         {
-            return PerformBluetoothOperation(() => PostMessage(new DieMessageRequestTelemetry() { telemetry = on ? (byte)1 : (byte)0 }));
+            PostMessage(new DieMessageRequestTelemetry() { telemetry = on ? (byte)1 : (byte)0 });
         }
 
-        public Coroutine RequestBulkData()
+        public void RequestBulkData()
         {
-            return PerformBluetoothOperation(() => PostMessage(new DieMessageTestBulkSend()));
+            PostMessage(new DieMessageTestBulkSend());
         }
 
-        public Coroutine PrepareBulkData()
+        public void PrepareBulkData()
         {
-            return PerformBluetoothOperation(() => PostMessage(new DieMessageTestBulkReceive()));
+            PostMessage(new DieMessageTestBulkReceive());
         }
 
-        public Coroutine SetLEDsToRandomColor()
+        public void SetLEDsToRandomColor()
         {
             var msg = new DieMessageSetAllLEDsToColor();
             uint r = (byte)Random.Range(0, 256);
             uint g = (byte)Random.Range(0, 256);
             uint b = (byte)Random.Range(0, 256);
             msg.color = (r << 16) + (g << 8) + b;
-            return PerformBluetoothOperation(() => PostMessage(msg));
+            PostMessage(msg);
         }
 
-        public Coroutine SetLEDsToColor(Color color)
+        public void SetLEDsToColor(Color color)
         {
             var msg = new DieMessageSetAllLEDsToColor();
             Color32 color32 = color;
             msg.color = (uint)((color32.r << 16) + (color32.g << 8) + color32.b);
-            return PerformBluetoothOperation(() => PostMessage(msg));
+            PostMessage(msg);
         }
 
         public Coroutine GetBatteryLevel(System.Action<Die, float?> outLevelAction)
         {
-            return PerformBluetoothOperation(GetBatteryLevelCr(outLevelAction));
-        }
-
-        IEnumerator GetBatteryLevelCr(System.Action<Die, float?> outLevelAction)
-        {
-            yield return StartCoroutine(SendMessageWithAckOrTimeoutCr(
+            return StartCoroutine(SendMessageWithAckOrTimeoutCr(
                 new DieMessageRequestBatteryLevel(),
                 DieMessageType.BatteryLevel,
                 5.0f,
@@ -277,12 +223,7 @@ namespace Dice
 
         public Coroutine GetRssi(System.Action<Die, int?> outRssiAction)
         {
-            return PerformBluetoothOperation(GetRssiCr(outRssiAction));
-        }
-
-        IEnumerator GetRssiCr(System.Action<Die, int?> outRssiAction)
-        {
-            yield return StartCoroutine(SendMessageWithAckOrTimeoutCr(
+            return StartCoroutine(SendMessageWithAckOrTimeoutCr(
                 new DieMessageRequestRssi(),
                 DieMessageType.Rssi,
                 5.0f,
@@ -296,7 +237,7 @@ namespace Dice
                 () => outRssiAction?.Invoke(this, null)));
         }
 
-        public Coroutine SetCurrentDesignAndColor(DesignAndColor design, System.Action<bool> callback)
+        public Coroutine SetCurrentDesignAndColor(DieDesignAndColor design, System.Action<bool> callback)
         {
             return StartCoroutine(SendMessageWithAckOrTimeoutCr(
                 new DieMessageSetDesignAndColor() { designAndColor = design },
@@ -377,18 +318,18 @@ namespace Dice
             PostMessage(new DieMessageDebugAnimController());
         }
 
-        public void PrintNormals()
+        public Coroutine PrintNormals()
         {
-            StartCoroutine(PrintNormalsCr());
-        }
+            return StartCoroutine(PrintNormalsCr());
 
-        IEnumerator PrintNormalsCr()
-        {
-            for (int i = 0; i < 20; ++i)
+            IEnumerator PrintNormalsCr()
             {
-                var msg = new DieMessagePrintNormals { face = (byte)i };
-                PostMessage(msg);
-                yield return new WaitForSeconds(0.5f);
+                for (int i = 0; i < 20; ++i)
+                {
+                    var msg = new DieMessagePrintNormals { face = (byte)i };
+                    PostMessage(msg);
+                    yield return new WaitForSeconds(0.5f);
+                }
             }
         }
 
@@ -406,7 +347,7 @@ namespace Dice
             var stateMsg = (DieMessageState)message;
             Debug.Log($"State: {stateMsg.state}, {stateMsg.face}");
 
-            var newState = (RollState)stateMsg.state;
+            var newState = (DieRollState)stateMsg.state;
             var newFace = stateMsg.face;
             if (newState != state || newFace != face)
             {

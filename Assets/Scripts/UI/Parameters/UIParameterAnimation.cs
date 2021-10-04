@@ -37,7 +37,7 @@ public class UIParameterAnimation
         // Set name
         nameText.text = name;
 
-        var design = DesignAndColor.V5_Grey;
+        var design = DieDesignAndColor.V5_Grey;
         if (initialAnim != null)
         {
             design = initialAnim.defaultPreviewSettings.design;

@@ -45,7 +45,7 @@ public class UIGradientPatternViewToken : MonoBehaviour
     public void Setup(EditPattern pattern)
     {
         editPattern = pattern;
-        dieRenderer = DiceRendererManager.Instance.CreateDiceRenderer(Dice.DesignAndColor.V5_Black);
+        dieRenderer = DiceRendererManager.Instance.CreateDiceRenderer(Dice.DieDesignAndColor.V5_Black);
         if (dieRenderer != null)
         {
             animRenderImage.texture = dieRenderer.renderTexture;

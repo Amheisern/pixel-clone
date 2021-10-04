@@ -40,7 +40,7 @@ public class UIPatternEditor : MonoBehaviour
             ForceHide();
         }
 
-        dieRenderer = DiceRendererManager.Instance.CreateDiceRenderer(Dice.DesignAndColor.V5_Black);
+        dieRenderer = DiceRendererManager.Instance.CreateDiceRenderer(Dice.DieDesignAndColor.V5_Black);
         if (dieRenderer != null)
         {
             diePreviewImage.texture = dieRenderer.renderTexture;

@@ -14,7 +14,7 @@ using Newtonsoft.Json.Linq;
 [System.Serializable]
 public class PreviewSettings
 {
-    public DesignAndColor design;
+    public DieDesignAndColor design;
 }
 
 public class AppDataSet : SingletonMonoBehaviour<AppDataSet>
@@ -464,7 +464,7 @@ public class AppDataSet : SingletonMonoBehaviour<AppDataSet>
             name = "Die 000",
             deviceId = 0x123456789ABCDEF0,
             faceCount = 20,
-            designAndColor = DesignAndColor.V3_Orange
+            designAndColor = DieDesignAndColor.V3_Orange
         };
         ret.dice.Add(die0);
         var die1 = new EditDie()
@@ -472,7 +472,7 @@ public class AppDataSet : SingletonMonoBehaviour<AppDataSet>
             name = "Die 001",
             deviceId = 0xABCDEF0123456789,
             faceCount = 20,
-            designAndColor = DesignAndColor.V5_Black
+            designAndColor = DieDesignAndColor.V5_Black
         };
         ret.dice.Add(die1);
         var die2 = new EditDie()
@@ -480,7 +480,7 @@ public class AppDataSet : SingletonMonoBehaviour<AppDataSet>
             name = "Die 002",
             deviceId = 0xCDEF0123456789AB,
             faceCount = 20,
-            designAndColor = DesignAndColor.V5_Grey
+            designAndColor = DieDesignAndColor.V5_Grey
         };
         ret.dice.Add(die2);
         var die3 = new EditDie()
@@ -488,7 +488,7 @@ public class AppDataSet : SingletonMonoBehaviour<AppDataSet>
             name = "Die 003",
             deviceId = 0xEF0123456789ABCD,
             faceCount = 20,
-            designAndColor = DesignAndColor.V5_Gold
+            designAndColor = DieDesignAndColor.V5_Gold
         };
         ret.dice.Add(die3);
         

@@ -44,7 +44,7 @@ public class UIRuleTokenActionTokenPlayAnimation
 
         if (dieRenderer == null)
         {
-            var design = DesignAndColor.V5_Grey;
+            var design = DieDesignAndColor.V5_Grey;
             if (playAnimAction.animation != null)
             {
                 design = playAnimAction.animation.defaultPreviewSettings.design;

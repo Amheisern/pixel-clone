@@ -114,7 +114,7 @@ public class UIPairedDieToken : MonoBehaviour
     void OnRename()
     {
         OnToggle();
-        if (die.die != null && die.die.connectionState == ConnectionState.Ready)
+        if (die.die != null && die.die.connectionState == DieConnectionState.Ready)
         {
             var newName = Names.GetRandomName();
             die.die.RenameDie(newName, (res) =>
@@ -139,12 +139,12 @@ public class UIPairedDieToken : MonoBehaviour
     void OnSetDesign()
     {
         OnToggle();
-        if (die.die != null && die.die.connectionState == ConnectionState.Ready)
+        if (die.die != null && die.die.connectionState == DieConnectionState.Ready)
         {
             PixelsApp.Instance.ShowEnumPicker("Select Design", die.designAndColor, (res, newDesign) =>
             {
-                die.designAndColor = (Dice.DesignAndColor)newDesign;
-                die.die.SetCurrentDesignAndColor((Dice.DesignAndColor)newDesign, (res2) =>
+                die.designAndColor = (Dice.DieDesignAndColor)newDesign;
+                die.die.SetCurrentDesignAndColor((Dice.DieDesignAndColor)newDesign, (res2) =>
                 {
                     if (res2)
                     {
@@ -160,7 +160,7 @@ public class UIPairedDieToken : MonoBehaviour
     void OnPing()
     {
         OnToggle();
-        if (die.die != null && die.die.connectionState == ConnectionState.Ready)
+        if (die.die != null && die.die.connectionState == DieConnectionState.Ready)
         {
             die.die.Flash(Color.yellow, 3, null);
         }
@@ -170,11 +170,11 @@ public class UIPairedDieToken : MonoBehaviour
     {
         OnToggle();
         if (die.die != null &&
-            (die.die.connectionState == ConnectionState.Ready ||
-             die.die.connectionState == ConnectionState.Connecting ||
-             die.die.connectionState == ConnectionState.Identifying))
+            (die.die.connectionState == DieConnectionState.Ready ||
+             die.die.connectionState == DieConnectionState.Connecting ||
+             die.die.connectionState == DieConnectionState.Identifying))
         {
-            DicePool.Instance.RawDisconnectDie(die.die);
+            DicePool.Instance.DisconnectDie(die, null);
         }
     }
 
@@ -182,7 +182,7 @@ public class UIPairedDieToken : MonoBehaviour
     {
         while (true)
         {
-            if (die.die != null && die.die.connectionState == ConnectionState.Ready)
+            if (die.die != null && die.die.connectionState == DieConnectionState.Ready)
             {
                 // Fetch battery level
                 bool battLevelReceived = false;

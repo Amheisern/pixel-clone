@@ -22,7 +22,7 @@ public class UIPatternPickerToken : MonoBehaviour
     public void Setup(EditPattern pattern)
     {
         this.editPattern = pattern;
-        this.dieRenderer = DiceRendererManager.Instance.CreateDiceRenderer(Dice.DesignAndColor.V5_Black);
+        this.dieRenderer = DiceRendererManager.Instance.CreateDiceRenderer(Dice.DieDesignAndColor.V5_Black);
         if (dieRenderer != null)
         {
             animRenderImage.texture = dieRenderer.renderTexture;

@@ -92,10 +92,10 @@ public class UIPairedDieView : MonoBehaviour
             signalView.SetRssi(die.die.rssi);
             switch (die.die.lastError)
             {
-                case Die.LastError.None:
+                case DieLastError.None:
                     switch (die.die.connectionState)
                     {
-                    case ConnectionState.Invalid:
+                    case DieConnectionState.Invalid:
                         dieRenderer.SetAuto(false);
                         dieRenderImage.color = AppConstants.Instance.DieUnavailableColor;
                         batteryView.gameObject.SetActive(false);
@@ -104,7 +104,7 @@ public class UIPairedDieView : MonoBehaviour
                         disconnectedTextRoot.gameObject.SetActive(true);
                         errorTextRoot.gameObject.SetActive(false);
                         break;
-                    case ConnectionState.Available:
+                    case DieConnectionState.Available:
                         dieRenderer.SetAuto(true);
                         dieRenderImage.color = Color.white;
                         batteryView.gameObject.SetActive(true);
@@ -113,7 +113,7 @@ public class UIPairedDieView : MonoBehaviour
                         disconnectedTextRoot.gameObject.SetActive(false);
                         errorTextRoot.gameObject.SetActive(false);
                         break;
-                    case ConnectionState.Connecting:
+                    case DieConnectionState.Connecting:
                         dieRenderer.SetAuto(false);
                         dieRenderImage.color = Color.white;
                         batteryView.gameObject.SetActive(true);
@@ -122,7 +122,7 @@ public class UIPairedDieView : MonoBehaviour
                         disconnectedTextRoot.gameObject.SetActive(false);
                         errorTextRoot.gameObject.SetActive(false);
                         break;
-                    case ConnectionState.Identifying:
+                    case DieConnectionState.Identifying:
                         dieRenderer.SetAuto(true);
                         dieRenderImage.color = Color.white;
                         batteryView.gameObject.SetActive(true);
@@ -131,7 +131,7 @@ public class UIPairedDieView : MonoBehaviour
                         disconnectedTextRoot.gameObject.SetActive(false);
                         errorTextRoot.gameObject.SetActive(false);
                         break;
-                    case ConnectionState.Ready:
+                    case DieConnectionState.Ready:
                         dieRenderer.SetAuto(true);
                         dieRenderImage.color = Color.white;
                         batteryView.gameObject.SetActive(true);
@@ -142,7 +142,7 @@ public class UIPairedDieView : MonoBehaviour
                         break;
                     }
                     break;
-                case Die.LastError.ConnectionError:
+                case DieLastError.ConnectionError:
                     dieRenderer.SetAuto(false);
                     dieRenderImage.color = AppConstants.Instance.DieUnavailableColor;
                     batteryView.gameObject.SetActive(false);
@@ -151,7 +151,7 @@ public class UIPairedDieView : MonoBehaviour
                     disconnectedTextRoot.gameObject.SetActive(false);
                     errorTextRoot.gameObject.SetActive(true);
                     break;
-                case Die.LastError.Disconnected:
+                case DieLastError.Disconnected:
                     dieRenderer.SetAuto(false);
                     dieRenderImage.color = AppConstants.Instance.DieUnavailableColor;
                     batteryView.gameObject.SetActive(false);
@@ -183,20 +183,16 @@ public class UIPairedDieView : MonoBehaviour
 
         if (die.die != null)
         {
-            die.die.OnConnectionStateChanged -= OnConnectionStateChanged;
-            die.die.OnError -= OnError;
-            die.die.OnAppearanceChanged -= OnAppearanceChanged;
-            die.die.OnBatteryLevelChanged -= OnBatteryLevelChanged;
-            die.die.OnRssiChanged -= OnRssiChanged;
+            OnDieWillBeLost(die);
         }
     }
 
-    void OnConnectionStateChanged(Die die, ConnectionState oldState, ConnectionState newState)
+    void OnConnectionStateChanged(Die die, DieConnectionState oldState, DieConnectionState newState)
     {
         UpdateState();
     }
 
-    void OnError(Die die, Die.LastError lastError)
+    void OnError(Die die, DieLastError lastError)
     {
         UpdateState();
     }
@@ -217,7 +213,7 @@ public class UIPairedDieView : MonoBehaviour
         UpdateState();
     }
 
-    void OnAppearanceChanged(Die die, int newFaceCount, DesignAndColor newDesign)
+    void OnAppearanceChanged(Die die, int newFaceCount, DieDesignAndColor newDesign)
     {
         this.die.designAndColor = newDesign;
         if (dieRenderer != null)

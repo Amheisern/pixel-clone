@@ -284,7 +284,7 @@ public class PixelsApp : SingletonMonoBehaviour<PixelsApp>
                 var hash = dataSet.ComputeHash();
 
                 // Get the hash directly from the die
-                editDie.die.GetDieInfo((info_res) =>
+                editDie.die.GetDieInfo(info_res =>
                 {
                     if (info_res)
                     {

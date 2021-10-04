@@ -64,8 +64,8 @@ public class UIScanView
     {
         // Assume all scanned dice will be destroyed
         var toDestroy = new List<UIDiscoveredDieView>(discoveredDice);
-        foreach (var die in DicePool.Instance.allConnectedDice.Where(d =>
-            d.connectionState == ConnectionState.Available))
+        foreach (var die in DicePool.Instance.scannedDice.Where(d =>
+            d.connectionState == DieConnectionState.Available))
         {
             if (!DicePool.Instance.allDice.Any(d => d.die == die || (d.deviceId != 0 && d.deviceId == die.deviceId) || d.name == die.name))
             {
@@ -165,7 +165,7 @@ public class UIScanView
     //     }
     // }
 
-    void OnDieStateChanged(Die die, ConnectionState oldState, ConnectionState newState)
+    void OnDieStateChanged(Die die, DieConnectionState oldState, DieConnectionState newState)
     {
         RefreshView();
     }
