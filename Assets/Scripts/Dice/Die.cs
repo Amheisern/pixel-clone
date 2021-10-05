@@ -60,13 +60,20 @@ namespace Dice
             get => _connectionState;
             protected set
             {
+                Debug.Assert(System.Threading.Thread.CurrentThread.ManagedThreadId == 1);
                 if (value != _connectionState)
                 {
-                    Debug.Log($"Die connection state change: {_connectionState} => {value}");
+                    Debug.Log($"Die {name} connection state change: {_connectionState} => {value}");
+                    var oldState = _connectionState;
                     _connectionState = value;
+                    OnConnectionStateChanged?.Invoke(this, oldState, value);
                 }
             }
         }
+
+        public bool isConnectingOrReady => (_connectionState == DieConnectionState.Connecting)
+                || (_connectionState == DieConnectionState.Identifying)
+                || (_connectionState == DieConnectionState.Ready);
 
         public DieLastError lastError { get; protected set; } = DieLastError.None;
 
@@ -121,9 +128,6 @@ namespace Dice
 
         public delegate void ErrorEvent(Die die, DieLastError error);
         public ErrorEvent OnError;
-
-        public delegate void SettingsChangedEvent(Die die);
-        public SettingsChangedEvent OnSettingsChanged;
 
         public delegate void AppearanceChangedEvent(Die die, int newFaceCount, DieDesignAndColor newDesign);
         public AppearanceChangedEvent OnAppearanceChanged;

@@ -169,12 +169,9 @@ public class UIPairedDieToken : MonoBehaviour
     void OnDisconnect()
     {
         OnToggle();
-        if (die.die != null &&
-            (die.die.connectionState == DieConnectionState.Ready ||
-             die.die.connectionState == DieConnectionState.Connecting ||
-             die.die.connectionState == DieConnectionState.Identifying))
+        if (die.die != null && die.die.isConnectingOrReady)
         {
-            DicePool.Instance.DisconnectDie(die, null);
+            DicePool.Instance.DisconnectDie(die, forceDisconnect: true);
         }
     }
 
@@ -182,19 +179,28 @@ public class UIPairedDieToken : MonoBehaviour
     {
         while (true)
         {
-            if (die.die != null && die.die.connectionState == DieConnectionState.Ready)
+            int counter = 0;
+            while (die.die?.connectionState == DieConnectionState.Ready)
             {
-                // Fetch battery level
-                bool battLevelReceived = false;
-                die.die.GetBatteryLevel((d, f) => battLevelReceived = true);
-                yield return new WaitUntil(() => battLevelReceived == true);
+                if (counter == 0)
+                {
+                    // Fetch battery level every once in a while
+                    bool battLevelReceived = false;
+                    die.die.GetBatteryLevel((d, f) => battLevelReceived = true);
+                    yield return new WaitUntil(() => battLevelReceived == true);
+                }
 
-                // Fetch RSSI
+                // Fetch RSSI every time
                 bool rssiReceived = false;
                 die.die.GetRssi((d, i) => rssiReceived = true);
                 yield return new WaitUntil(() => rssiReceived == true);
+
+                yield return new WaitForSeconds(3.0f);
+
+                counter = (int)Mathf.Repeat(counter + 1, 4);
             }
-            yield return new WaitForSeconds(3.0f);
+
+            yield return null;
         }
     }
 }

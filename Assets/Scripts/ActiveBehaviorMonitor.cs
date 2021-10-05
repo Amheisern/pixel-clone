@@ -18,7 +18,7 @@ public class ActiveBehaviorMonitor : MonoBehaviour
     void OnBehaviorDownloadedEvent(Dice.EditDie die, Behaviors.EditBehavior behavior)
     {
         // Check whether we should stay connected to some of the dice
-        List<EditDie> toDisconnect = new List<EditDie>(connectedDice);
+        var toDisconnect = new List<EditDie>(connectedDice);
         if (behavior.CollectAudioClips().Any())
         {
             // This die assignment uses a behavior that has audio clips, so stay connected to the die
@@ -30,7 +30,7 @@ public class ActiveBehaviorMonitor : MonoBehaviour
             {
                 // Connect to the new die
                 connectedDice.Add(die);
-                DicePool.Instance.ConnectDie(die, (d, res, _) =>
+                DicePool.Instance.ConnectDice(new[] { die }, () => !gameObject.activeInHierarchy, (d, res, _) =>
                 {
                     if (!res)
                     {
@@ -43,7 +43,7 @@ public class ActiveBehaviorMonitor : MonoBehaviour
         foreach (var d in toDisconnect)
         {
             connectedDice.Remove(d);
-            DicePool.Instance.DisconnectDie(d, null);
+            DicePool.Instance.DisconnectDie(d);
         }
     }
 }

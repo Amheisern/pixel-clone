@@ -25,13 +25,13 @@ public class UILiveView
         base.Enter(context);
         watchedDice.Clear();
         watchedDice.AddRange(DicePool.Instance.allDice);
-        DicePool.Instance.ConnectDiceList(watchedDice, null);
+        DicePool.Instance.ConnectDice(watchedDice, () => !gameObject.activeInHierarchy);
     }
 
     public override void Leave()
     {
         base.Leave();
-        watchedDice.ForEach(d => DicePool.Instance.DisconnectDie(d, null));
+        watchedDice.ForEach(d => DicePool.Instance.DisconnectDie(d));
         watchedDice.Clear();
     }
 
@@ -58,7 +58,7 @@ public class UILiveView
         var ret = GameObject.Instantiate<UILiveDieEntry>(dieEntryPrefab, Vector3.zero, Quaternion.identity, contentRoot.transform);
 
         // Initialize it
-        ret.Setup(die, roll, Time.time);
+        ret.Setup(die, roll);
         return ret;
     }
 

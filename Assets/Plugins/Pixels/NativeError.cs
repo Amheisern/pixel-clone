@@ -69,21 +69,42 @@ namespace Systemic.Pixels.Unity.BluetoothLE
     public enum Error
     {
         None = 0,
+        Unreachable = 4,
         NotSupported = 0xCCCCCC,
         Unknown = 0xDDDDDD,
     }
 
+    public enum RequestStatus
+    {
+        Success,
+        InvalidParameters,
+        NotSupported,
+        Busy,
+        Unreachable,
+        GattError,
+        Error,
+        Canceled,
+    }
+
+
     public struct NativeError
     {
-        public NativeError(int code, string message = null)
-            => (Code, Message) = (code, message);
+        public static readonly NativeError Empty = new NativeError();
 
         public bool IsEmpty => Code == 0;
+
+        public bool HasError => Code != 0;
 
         public int Code { get; }
 
         public string Message { get; }
 
-        public static readonly NativeError Empty = new NativeError();
+        public NativeError(int code, string message = null) => (Code, Message) = (code, message);
+
+        public override string ToString() => $"({Code}, '{Message}')";
+
+        public override bool Equals(object obj) => (obj is NativeError) && (Code == ((NativeError)obj).Code);
+
+        public override int GetHashCode() => Code;
     }
 }

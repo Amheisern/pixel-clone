@@ -48,7 +48,7 @@ public class UIDicePoolView
         }
         foreach (var editDie in connectedDice)
         {
-            DicePool.Instance.DisconnectDie(editDie, null);
+            DicePool.Instance.DisconnectDie(editDie);
         }
         connectedDice.Clear();
     }
@@ -128,7 +128,7 @@ public class UIDicePoolView
         if (!connectedDice.Contains(editDie))
         {
             connectedDice.Add(editDie);
-            DicePool.Instance.ConnectDie(editDie, null);
+            DicePool.Instance.ConnectDice(new[] { editDie }, () => !gameObject.activeInHierarchy);
         }
         RefreshView();
     }
@@ -158,9 +158,7 @@ public class UIDicePoolView
             OnBeginRefreshPool();
             allDiceCopy.Clear();
             allDiceCopy.AddRange(DicePool.Instance.allDice.Where(d => d.die == null || d.die.connectionState == DieConnectionState.Available));
-            bool connected = false;
-            DicePool.Instance.ConnectDiceList(allDiceCopy, () => connected = true);
-            yield return new WaitUntil(() => connected);
+            yield return DicePool.Instance.ConnectDice(allDiceCopy, () => !gameObject.activeInHierarchy);
             foreach (var editDie in allDiceCopy)
             {
                 if (editDie.die != null && editDie.die.connectionState == DieConnectionState.Ready)

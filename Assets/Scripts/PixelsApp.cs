@@ -205,7 +205,7 @@ public class PixelsApp : SingletonMonoBehaviour<PixelsApp>
     {
         // Make sure the die is ready!
         ShowProgrammingBox("Connecting to " + die.name + "...");
-        DicePool.Instance.ConnectDie(die, (editDie, res, message) =>
+        DicePool.Instance.ConnectDice(new[] { die }, () => !gameObject.activeInHierarchy, (editDie, res, message) =>
         {
             if (res)
             {
@@ -320,13 +320,13 @@ public class PixelsApp : SingletonMonoBehaviour<PixelsApp>
                                                 onDieBehaviorUpdatedEvent?.Invoke(die, die.currentBehavior);
                                                 callback?.Invoke(true);
                                             }
-                                            DicePool.Instance.DisconnectDie(editDie, null);
+                                            DicePool.Instance.DisconnectDie(editDie);
                                         }
                                         else
                                         {
                                             HideProgrammingBox();
                                             ShowDialogBox("Error fetching profile hash value from " + editDie.name, message);
-                                            DicePool.Instance.DisconnectDie(editDie, null);
+                                            DicePool.Instance.DisconnectDie(editDie);
                                             callback?.Invoke(false);
                                         }
                                     });
@@ -335,7 +335,7 @@ public class PixelsApp : SingletonMonoBehaviour<PixelsApp>
                                 {
                                     HideProgrammingBox();
                                     ShowDialogBox("Error uploading data to " + editDie.name, errorMsg);
-                                    DicePool.Instance.DisconnectDie(editDie, null);
+                                    DicePool.Instance.DisconnectDie(editDie);
                                     callback?.Invoke(false);
                                 }
                             });
@@ -345,7 +345,7 @@ public class PixelsApp : SingletonMonoBehaviour<PixelsApp>
                             Debug.Log("Die " + editDie.name + " already has preset with hash 0x" + hash.ToString("X8") + " programmed.");
                             HideProgrammingBox();
                             ShowDialogBox("Profile already Programmed", "Die " + editDie.name + " already has profile \"" + behavior.name + "\" programmed.");
-                            DicePool.Instance.DisconnectDie(editDie, null);
+                            DicePool.Instance.DisconnectDie(editDie);
                             callback?.Invoke(true);
                         }
                     }
@@ -353,7 +353,7 @@ public class PixelsApp : SingletonMonoBehaviour<PixelsApp>
                     {
                         HideProgrammingBox();
                         ShowDialogBox("Error verifying profile hash on " + editDie.name, message);
-                        DicePool.Instance.DisconnectDie(editDie, null);
+                        DicePool.Instance.DisconnectDie(editDie);
                         callback?.Invoke(false);
                     }
                 });

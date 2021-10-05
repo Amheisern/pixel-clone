@@ -82,8 +82,8 @@ public class NotificationUI : SingletonMonoBehaviour<NotificationUI>
 
     IEnumerator TimeoutCr(float timeout, System.Action<bool> callback)
     {
-        float startTime = Time.time;
-        while (Time.time < startTime + timeout)
+        timeout += Time.realtimeSinceStartup;
+        while (Time.realtimeSinceStartup < timeout)
         {
             yield return null;
         }

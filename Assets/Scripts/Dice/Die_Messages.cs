@@ -6,6 +6,8 @@ namespace Dice
 {
     partial class Die
     {
+        const float AckMessageTimeout = 5;
+
         #region Message Infrastructure
 
         void AddMessageHandler(DieMessageType msgType, MessageReceivedDelegate newDel)
@@ -64,18 +66,18 @@ namespace Dice
             }
         }
 
-        IEnumerator SendMessageWithAckOrTimeoutCr<T>(T message, DieMessageType ackType, float timeOut, System.Action<IDieMessage> ackAction, System.Action timeoutAction)
+        IEnumerator SendMessageWithAckOrTimeoutCr<T>(T message, DieMessageType ackType, System.Action<IDieMessage> ackAction, System.Action timeoutAction)
             where T : IDieMessage
         {
-            Debug.Log($"Sending message with ACK of type {message.GetType()}");
+            Debug.Log($"Sending message of type {typeof(T)} with ACK of type {message.GetType()}");
 
             IDieMessage ackMessage = null;
-            float startTime = Time.time;
+            float timeout = Time.realtimeSinceStartup + AckMessageTimeout;
             void callback(IDieMessage ackMsg) => ackMessage = ackMsg;
 
             AddMessageHandler(ackType, callback);
             WriteData(DieMessages.ToByteArray(message), null);
-            while (ackMessage == null && Time.time < startTime + timeOut)
+            while (ackMessage == null && Time.realtimeSinceStartup < timeout)
             {
                 yield return null;
             }
@@ -102,12 +104,11 @@ namespace Dice
                 ackAction?.Invoke(msg);
             }
 
-            int count = 0;
-            while (!msgReceived && count < retryCount)
+            while ((!msgReceived) && (retryCount >= 0))
             {
                 // Retry every half second if necessary
-                yield return StartCoroutine(SendMessageWithAckOrTimeoutCr(message, ackType, 10.0f, msgAction, timeoutAction));
-                count++;
+                yield return StartCoroutine(SendMessageWithAckOrTimeoutCr(message, ackType, msgAction, timeoutAction));
+                --retryCount;
             }
         }
 
@@ -142,33 +143,39 @@ namespace Dice
             PostMessage(new DieMessageAttractMode());
         }
 
-        public void Ping()
+        public Coroutine GetDieState(System.Action<bool> callback)
         {
-            PostMessage(new DieMessageRequestState());
+            var whoAreYouMsg = new DieMessageRequestState();
+            return StartCoroutine(SendMessageWithAckOrTimeoutCr(
+                whoAreYouMsg,
+                DieMessageType.State,
+                _ => callback?.Invoke(true),
+                () => callback?.Invoke(false)));
         }
 
         public Coroutine GetDieInfo(System.Action<bool> callback)
         {
-            void updateDieInfo(IDieMessage msg)
-            {
-                var idMsg = (DieMessageIAmADie)msg;
-                bool appearanceChanged = faceCount != idMsg.faceCount || designAndColor != idMsg.designAndColor;
-                faceCount = idMsg.faceCount;
-                designAndColor = idMsg.designAndColor;
-                deviceId = idMsg.deviceId;
-                dataSetHash = idMsg.dataSetHash;
-                flashSize = idMsg.flashSize;
-                firmwareVersionId = idMsg.versionInfo;
-                Debug.Log($"Die {name} has {flashSize} bytes available for data, current dataset hash {dataSetHash:X08}, firmware version is {firmwareVersionId}");
-                if (appearanceChanged)
+            return StartCoroutine(SendMessageWithAckOrTimeoutCr(
+                new DieMessageWhoAreYou(),
+                DieMessageType.IAmADie,
+                msg =>
                 {
-                    OnAppearanceChanged?.Invoke(this, faceCount, designAndColor);
-                }
-                callback?.Invoke(true);
-            }
-
-            var whoAreYouMsg = new DieMessageWhoAreYou();
-            return StartCoroutine(SendMessageWithAckOrTimeoutCr(whoAreYouMsg, DieMessageType.IAmADie, 5, updateDieInfo, () => callback?.Invoke(false)));
+                    var idMsg = (DieMessageIAmADie)msg;
+                    bool appearanceChanged = faceCount != idMsg.faceCount || designAndColor != idMsg.designAndColor;
+                    faceCount = idMsg.faceCount;
+                    designAndColor = idMsg.designAndColor;
+                    deviceId = idMsg.deviceId;
+                    dataSetHash = idMsg.dataSetHash;
+                    flashSize = idMsg.flashSize;
+                    firmwareVersionId = idMsg.versionInfo;
+                    Debug.Log($"Die {name} has {flashSize} bytes available for data, current dataset hash {dataSetHash:X08}, firmware version is {firmwareVersionId}");
+                    if (appearanceChanged)
+                    {
+                        OnAppearanceChanged?.Invoke(this, faceCount, designAndColor);
+                    }
+                    callback?.Invoke(true);
+                },
+                () => callback?.Invoke(false)));
         }
 
         public void RequestTelemetry(bool on)
@@ -198,10 +205,11 @@ namespace Dice
 
         public void SetLEDsToColor(Color color)
         {
-            var msg = new DieMessageSetAllLEDsToColor();
             Color32 color32 = color;
-            msg.color = (uint)((color32.r << 16) + (color32.g << 8) + color32.b);
-            PostMessage(msg);
+            PostMessage(new DieMessageSetAllLEDsToColor
+            {
+                color = (uint)((color32.r << 16) + (color32.g << 8) + color32.b)
+            });
         }
 
         public Coroutine GetBatteryLevel(System.Action<Die, float?> outLevelAction)
@@ -209,8 +217,7 @@ namespace Dice
             return StartCoroutine(SendMessageWithAckOrTimeoutCr(
                 new DieMessageRequestBatteryLevel(),
                 DieMessageType.BatteryLevel,
-                5.0f,
-                (msg) =>
+                msg =>
                 {
                     var lvlMsg = (DieMessageBatteryLevel)msg;
                     batteryLevel = lvlMsg.level;
@@ -226,8 +233,7 @@ namespace Dice
             return StartCoroutine(SendMessageWithAckOrTimeoutCr(
                 new DieMessageRequestRssi(),
                 DieMessageType.Rssi,
-                5.0f,
-                (msg) =>
+                msg =>
                 {
                     var rssiMsg = (DieMessageRssi)msg;
                     rssi = rssiMsg.rssi;
@@ -242,8 +248,7 @@ namespace Dice
             return StartCoroutine(SendMessageWithAckOrTimeoutCr(
                 new DieMessageSetDesignAndColor() { designAndColor = design },
                 DieMessageType.SetDesignAndColorAck,
-                3,
-                (ignore) =>
+                _ =>
                 {
                     designAndColor = design;
                     OnAppearanceChanged?.Invoke(this, faceCount, designAndColor);
@@ -255,15 +260,15 @@ namespace Dice
         public Coroutine RenameDie(string newName, System.Action<bool> callback)
         {
             Debug.Log("Renaming to " + newName);
+
             byte[] nameBytes = System.Text.Encoding.UTF8.GetBytes(newName + "\0");
             byte[] nameByte10 = new byte[10]; // 10 is the declared size in DieMessageSetName. There is probably a better way to do this...
             System.Array.Copy(nameBytes, nameByte10, nameBytes.Length);
 
             return StartCoroutine(SendMessageWithAckOrTimeoutCr(
-                new DieMessageSetName() { name = nameByte10 },
+                new DieMessageSetName { name = nameByte10 },
                 DieMessageType.SetNameAck,
-                3,
-                (ignore) => callback?.Invoke(true),
+                _ => callback?.Invoke(true),
                 () => callback?.Invoke(false)));
         }
 
@@ -278,8 +283,7 @@ namespace Dice
             return StartCoroutine(SendMessageWithAckOrTimeoutCr(
                 msg,
                 DieMessageType.FlashFinished,
-                3,
-                (ignore) => callback?.Invoke(true),
+                _ => callback?.Invoke(true),
                 () => callback?.Invoke(false)));
         }
 

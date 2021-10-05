@@ -182,8 +182,7 @@ namespace Dice
                     yield return SendMessageWithAckOrTimeoutCr(
                         prepareDie,
                         DieMessageType.TransferAnimSetAck,
-                        3.0f,
-                        msg => acceptTransfer = (msg as DieMessageTransferAnimSetAck).result != 0,
+                        msg => acceptTransfer = ((DieMessageTransferAnimSetAck)msg).result != 0,
                         null);
 
                     if (acceptTransfer.HasValue)
@@ -284,7 +283,6 @@ namespace Dice
                     yield return SendMessageWithAckOrTimeoutCr(
                         prepareDie,
                         DieMessageType.TransferTestAnimSetAck,
-                        3.0f,
                         ack => acknowledge = ((DieMessageTransferTestAnimSetAck)ack).ackType,
                         null);
 
@@ -319,9 +317,7 @@ namespace Dice
                             }
                             break;
                         case TransferTestAnimSetAckType.UpToDate:
-                            {
-                                result = true;
-                            }
+                            result = true;
                             break;
                         default:
                             break;

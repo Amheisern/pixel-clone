@@ -27,7 +27,7 @@ namespace Systemic.Pixels.Unity.BluetoothLE
 
         public bool IsSuccess => _error.HasValue && _error.Value.IsEmpty;
 
-        public bool IsTimedOut => _isTimedOut = _isTimedOut || (Time.realtimeSinceStartupAsDouble >= _timeout);
+        public bool IsTimedOut => _isTimedOut = _isTimedOut || ((_timeout > 0) && (Time.realtimeSinceStartupAsDouble >= _timeout));
 
         public int ErrorCode => _error?.Code ?? 0;
 
@@ -38,7 +38,7 @@ namespace Systemic.Pixels.Unity.BluetoothLE
         internal RequestEnumerator(Operation operation, float timeoutSec, Action<NativeRequestResultHandler> action, Action postAction = null)
         {
             Operation = operation;
-            _timeout = Time.realtimeSinceStartupAsDouble + timeoutSec;
+            _timeout = timeoutSec == 0 ? 0 : Time.realtimeSinceStartupAsDouble + timeoutSec;
             _postAction = postAction;
             action?.Invoke(SetResult);
         }

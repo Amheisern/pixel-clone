@@ -118,7 +118,7 @@ public class UIPairedDieView : MonoBehaviour
                         dieRenderImage.color = Color.white;
                         batteryView.gameObject.SetActive(true);
                         signalView.gameObject.SetActive(true);
-                        statusText.text = "Identifying";
+                        statusText.text = "Connecting";
                         disconnectedTextRoot.gameObject.SetActive(false);
                         errorTextRoot.gameObject.SetActive(false);
                         break;
