@@ -299,17 +299,8 @@ namespace Systemic.Pixels.Unity.BluetoothLE
 
             //TODO make sure that disconnect always calls onResult (infinite timeout)
             return new RequestEnumerator(Operation.DisconnectPeripheral, 0,
-                onResult =>
-                {
-                    Debug.LogError("DisconnectPeripheralAsync");
-                    NativeInterface.DisconnectPeripheral(nativePeripheral, onResult);
-                    Debug.LogError("DisconnectPeripheralAsync AFTER");
-                },
-                postAction: () =>
-                {
-                    Debug.LogError("ReleasePeripheral");
-                    NativeInterface.ReleasePeripheral(nativePeripheral);
-                });
+                onResult => NativeInterface.DisconnectPeripheral(nativePeripheral, onResult),
+                postAction: () => NativeInterface.ReleasePeripheral(nativePeripheral));
         }
 
         public static string GetPeripheralName(ScannedPeripheral peripheral)

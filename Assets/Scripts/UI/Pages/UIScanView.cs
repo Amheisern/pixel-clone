@@ -52,7 +52,7 @@ public class UIScanView
         }
         foreach (var die in discoveredDice)
         {
-            die.die.OnConnectionStateChanged -= OnDieStateChanged;
+            die.die.ConnectionStateChanged -= OnDieStateChanged;
             die.onSelected -= OnDieSelected;
             DestroyDiscoveredDie(die);
         }
@@ -127,7 +127,7 @@ public class UIScanView
 
     void OnDieDiscovered(Die newDie)
     {
-        newDie.OnConnectionStateChanged += OnDieStateChanged;
+        newDie.ConnectionStateChanged += OnDieStateChanged;
         RefreshView();
     }
 

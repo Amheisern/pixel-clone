@@ -21,6 +21,8 @@ namespace Systemic.Pixels.Unity.BluetoothLE.Internal.Windows
             List<RequestStatusHandler> _onRequestStatusHandlers = new List<RequestStatusHandler>();
             Dictionary<string, ValueChangedHandler> _onValueChangedHandlers = new Dictionary<string, ValueChangedHandler>();
 
+            static List<NativePeripheral> _releasedPeripherals = new List<NativePeripheral>();
+
             public NativePeripheral(ulong peripheralId, PeripheralConnectionEventHandler onPeripheralConnectionStatusChanged)
                 => (PeripheralId, _onPeripheralConnectionStatusChanged) = (peripheralId, onPeripheralConnectionStatusChanged);
 
@@ -33,7 +35,9 @@ namespace Systemic.Pixels.Unity.BluetoothLE.Internal.Windows
 
             public void Forget(RequestStatusHandler onRequestStatus)
             {
+                Debug.Assert(_onRequestStatusHandlers.Contains(onRequestStatus));
                 _onRequestStatusHandlers.Remove(onRequestStatus);
+                CheckReleased();
             }
 
             public void Keep(string serviceUuid, string characteristicUuid, uint instanceIndex, ValueChangedHandler onValueChanged)
@@ -43,7 +47,27 @@ namespace Systemic.Pixels.Unity.BluetoothLE.Internal.Windows
 
             public void Forget(string serviceUuid, string characteristicUuid, uint instanceIndex)
             {
-                _onValueChangedHandlers.Remove($"{serviceUuid}:{characteristicUuid}#{instanceIndex}");
+                string key = $"{serviceUuid}:{characteristicUuid}#{instanceIndex}";
+                Debug.Assert(_onValueChangedHandlers.ContainsKey(key));
+                _onValueChangedHandlers.Remove(key);
+                CheckReleased();
+            }
+
+            public void Release()
+            {
+                if (_onRequestStatusHandlers.Count > 0)
+                {
+                    // Keep a reference to ourselves until all handlers have been cleared out
+                    _releasedPeripherals.Add(this);
+                }
+            }
+
+            void CheckReleased()
+            {
+                if (_onRequestStatusHandlers.Count == 0)
+                {
+                    _releasedPeripherals.Remove(this);
+                }
             }
         }
 
@@ -179,6 +203,8 @@ namespace Systemic.Pixels.Unity.BluetoothLE.Internal.Windows
 
         public void ReleasePeripheral(PeripheralHandle peripheral)
         {
+            var periph = (NativePeripheral)peripheral.SystemClient;
+            periph.Release();
             pxBleReleasePeripheral(GetPeripheralId(peripheral));
         }
 
@@ -232,9 +258,9 @@ namespace Systemic.Pixels.Unity.BluetoothLE.Internal.Windows
         public void ReadCharacteristic(PeripheralHandle peripheral, string serviceUuid, string characteristicUuid, uint instanceIndex, NativeValueChangedHandler onValueChanged, NativeRequestResultHandler onResult)
         {
             var valueChangedHandler = GetValueChangedHandler(peripheral, onValueChanged);
-            pxBleReadCharacteristicValue(GetPeripheralId(peripheral), serviceUuid, characteristicUuid, instanceIndex, valueChangedHandler, GetRequestStatusHandler(peripheral, onResult));
             var periph = (NativePeripheral)peripheral.SystemClient;
             periph.Keep(serviceUuid, characteristicUuid, instanceIndex, valueChangedHandler);
+            pxBleReadCharacteristicValue(GetPeripheralId(peripheral), serviceUuid, characteristicUuid, instanceIndex, valueChangedHandler, GetRequestStatusHandler(peripheral, onResult));
         }
 
         public void WriteCharacteristic(PeripheralHandle peripheral, string serviceUuid, string characteristicUuid, uint instanceIndex, byte[] data, bool withoutResponse, NativeRequestResultHandler onResult)
@@ -254,9 +280,9 @@ namespace Systemic.Pixels.Unity.BluetoothLE.Internal.Windows
         public void SubscribeCharacteristic(PeripheralHandle peripheral, string serviceUuid, string characteristicUuid, uint instanceIndex, NativeValueChangedHandler onValueChanged, NativeRequestResultHandler onResult)
         {
             var valueChangedHandler = GetValueChangedHandler(peripheral, onValueChanged);
-            pxBleSetNotifyCharacteristic(GetPeripheralId(peripheral), serviceUuid, characteristicUuid, instanceIndex, valueChangedHandler, GetRequestStatusHandler(peripheral, onResult));
             var periph = (NativePeripheral)peripheral.SystemClient;
             periph.Keep(serviceUuid, characteristicUuid, instanceIndex, valueChangedHandler);
+            pxBleSetNotifyCharacteristic(GetPeripheralId(peripheral), serviceUuid, characteristicUuid, instanceIndex, valueChangedHandler, GetRequestStatusHandler(peripheral, onResult));
         }
 
         public void UnsubscribeCharacteristic(PeripheralHandle peripheral, string serviceUuid, string characteristicUuid, uint instanceIndex, NativeRequestResultHandler onResult)
@@ -276,9 +302,16 @@ namespace Systemic.Pixels.Unity.BluetoothLE.Internal.Windows
             RequestStatusHandler onRequestStatus = null;
             onRequestStatus = errorCode =>
             {
-                //Debug.LogWarning("Request status => " + errorCode);
-                periph.Forget(onRequestStatus);
-                onResult(new NativeError((int)errorCode, null));
+                try
+                {
+                    //if (errorCode != 0) Debug.LogError($"Request status => {errorCode}");
+                    periph.Forget(onRequestStatus);
+                    onResult(new NativeError((int)errorCode, null));
+                }
+                catch (Exception e)
+                {
+                    Debug.LogException(e);
+                }
             };
             periph.Keep(onRequestStatus);
             return onRequestStatus;
@@ -289,13 +322,13 @@ namespace Systemic.Pixels.Unity.BluetoothLE.Internal.Windows
             var periph = (NativePeripheral)peripheral.SystemClient;
             ValueChangedHandler valueChangedHandler = (IntPtr data, UIntPtr length, BleRequestStatus errorCode) =>
             {
-                var array = new byte[(int)length];
-                if (data != IntPtr.Zero)
-                {
-                    Marshal.Copy(data, array, 0, array.Length);
-                }
                 try
                 {
+                    var array = new byte[(int)length];
+                    if (data != IntPtr.Zero)
+                    {
+                        Marshal.Copy(data, array, 0, array.Length);
+                    }
                     onValueChanged(array, new NativeError((int)errorCode));
                 }
                 catch (Exception e)

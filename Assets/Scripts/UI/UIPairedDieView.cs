@@ -231,11 +231,11 @@ public class UIPairedDieView : MonoBehaviour
     void OnDieFound(EditDie editDie)
     {
         Debug.Assert(editDie == die);
-        die.die.OnConnectionStateChanged += OnConnectionStateChanged;
-        die.die.OnError += OnError;
-        die.die.OnAppearanceChanged += OnAppearanceChanged;
-        die.die.OnBatteryLevelChanged += OnBatteryLevelChanged;
-        die.die.OnRssiChanged += OnRssiChanged;
+        die.die.ConnectionStateChanged += OnConnectionStateChanged;
+        die.die.GotError += OnError;
+        die.die.AppearanceChanged += OnAppearanceChanged;
+        die.die.BatteryLevelChanged += OnBatteryLevelChanged;
+        die.die.RssiChanged += OnRssiChanged;
 
         bool saveUpdatedData = false;
         if (die.designAndColor != die.die.designAndColor)
@@ -258,11 +258,11 @@ public class UIPairedDieView : MonoBehaviour
 
     void OnDieWillBeLost(EditDie editDie)
     {
-        editDie.die.OnConnectionStateChanged -= OnConnectionStateChanged;
-        editDie.die.OnAppearanceChanged -= OnAppearanceChanged;
-        editDie.die.OnBatteryLevelChanged -= OnBatteryLevelChanged;
-        editDie.die.OnRssiChanged -= OnRssiChanged;
-        editDie.die.OnError -= OnError;
+        editDie.die.ConnectionStateChanged -= OnConnectionStateChanged;
+        editDie.die.AppearanceChanged -= OnAppearanceChanged;
+        editDie.die.BatteryLevelChanged -= OnBatteryLevelChanged;
+        editDie.die.RssiChanged -= OnRssiChanged;
+        editDie.die.GotError -= OnError;
     }
 
     void Update()

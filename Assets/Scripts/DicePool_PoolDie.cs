@@ -1,6 +1,5 @@
 using Dice;
 using System.Collections;
-using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
 using System.Runtime.InteropServices;
@@ -33,9 +32,6 @@ partial class DicePool
             public byte batteryLevel; // 0 -> 255
         };
 
-        // Queue of coroutines to run one by one, usually BLE requests for a die
-        readonly ConcurrentQueue<System.Func<IEnumerator>> _coroQueue = new ConcurrentQueue<System.Func<IEnumerator>>();
-
         // The underlying BLE device
         Peripheral _peripheral;
 
@@ -58,6 +54,8 @@ partial class DicePool
 
         public void Setup(Peripheral peripheral)
         {
+            CheckRunningOnMainThread();
+
             if (peripheral == null) throw new System.ArgumentNullException(nameof(peripheral));
 
             if (_peripheral == null)
@@ -96,16 +94,16 @@ partial class DicePool
                     rssi = _peripheral.Rssi;
 
                     // Trigger callbacks
-                    OnBatteryLevelChanged?.Invoke(this, batteryLevel, charging);
+                    BatteryLevelChanged?.Invoke(this, batteryLevel, charging);
                     if (appearanceChanged)
                     {
-                        OnAppearanceChanged?.Invoke(this, faceCount, designAndColor);
+                        AppearanceChanged?.Invoke(this, faceCount, designAndColor);
                     }
                     if (rollStateChanged)
                     {
-                        OnStateChanged?.Invoke(this, state, face);
+                        StateChanged?.Invoke(this, state, face);
                     }
-                    OnRssiChanged?.Invoke(this, rssi);
+                    RssiChanged?.Invoke(this, rssi);
                 }
                 else
                 {
@@ -116,11 +114,15 @@ partial class DicePool
 
         public void ResetLastError()
         {
+            CheckRunningOnMainThread();
+
             lastError = DieLastError.None;
         }
 
         public void Connect(ConnectionResultHandler onConnectionResult = null)
         {
+            CheckRunningOnMainThread();
+
             void IncrementConnectCount()
             {
                 ++_connectionCount;
@@ -156,13 +158,13 @@ partial class DicePool
 
         public void Disconnect(ConnectionResultHandler onDisconnectionResult = null, bool forceDisconnect = false)
         {
+            CheckRunningOnMainThread();
+
             switch (connectionState)
             {
                 default:
-                    // We are already disconnected
-                    string errorMessage = $"Die {name} in invalid die state {connectionState} while attempting to disconnect";
-                    Debug.LogError(errorMessage);
-                    onDisconnectionResult?.Invoke(this, true, errorMessage); // Notify as a success but with an error message
+                    // Die not connected
+                    onDisconnectionResult?.Invoke(this, true, null);
                     break;
                 case DieConnectionState.Ready:
                 case DieConnectionState.Connecting:
@@ -193,7 +195,7 @@ partial class DicePool
             if (connectionState == DieConnectionState.Available)
             {
                 connectionState = DieConnectionState.Connecting;
-                _coroQueue.Enqueue(ConnectAsync);
+                StartCoroutine(ConnectAsync());
 
                 IEnumerator ConnectAsync()
                 {
@@ -381,21 +383,11 @@ partial class DicePool
                 SetLastError(error);
             }
 
-            Debug.Assert(_connectionCount == 0);
             Debug.Assert(isConnectingOrReady);
             if (isConnectingOrReady)
             {
+                _connectionCount = 0;
                 connectionState = DieConnectionState.Disconnecting;
-
-                //TODO ------------------------------- Clear Queue >>>>>>>>>>>>>>
-                //TODO ------------------------------- Clear Queue >>>>>>>>>>>>>>
-                //TODO ------------------------------- Clear Queue >>>>>>>>>>>>>>
-                //TODO ------------------------------- Clear Queue >>>>>>>>>>>>>>
-                //TODO ------------------------------- Clear Queue >>>>>>>>>>>>>>
-                //TODO ------------------------------- Clear Queue >>>>>>>>>>>>>>
-                //TODO ------------------------------- Clear Queue >>>>>>>>>>>>>>
-                //TODO ------------------------------- Clear Queue >>>>>>>>>>>>>>
-                //TODO ------------------------------- Clear Queue >>>>>>>>>>>>>>
                 StartCoroutine(DisconnectAsync());
 
                 IEnumerator DisconnectAsync()
@@ -426,13 +418,15 @@ partial class DicePool
             lastError = newError;
             if (lastError != DieLastError.None)
             {
-                OnError?.Invoke(this, newError);
+                GotError?.Invoke(this, newError);
             }
         }
 
         protected override void WriteData(byte[] bytes, System.Action<Die, bool, string> onWriteResult)
         {
-            _coroQueue.Enqueue(WriteAsync);
+            CheckRunningOnMainThread();
+
+            StartCoroutine(WriteAsync());
 
             IEnumerator WriteAsync()
             {
@@ -442,25 +436,8 @@ partial class DicePool
             }
         }
 
-        IEnumerator Start()
-        {
-            while (true)
-            {
-                if (_coroQueue.TryDequeue(out var coro))
-                {
-                    yield return coro();
-                }
-                else
-                {
-                    yield return null;
-                }
-            }
-        }
-
         void OnDestroy()
         {
-            Debug.LogError("OnDestroy " + name);
-
             onDisconnectedUnexpectedly = null;
             onConnectionResult = null;
             onDisconnectionResult = null;
@@ -469,10 +446,16 @@ partial class DicePool
             _connectionCount = 0;
             connectionState = DieConnectionState.Invalid;
 
+            Debug.Log($"{name}: goodbye! (was connecting or connected: {disconnect})");
+
             if (disconnect)
             {
                 Debug.Assert(_peripheral != null);
-                DicePool.Instance.StartCoroutine(Central.DisconnectPeripheralAsync(_peripheral));
+                var pool = DicePool.Instance;
+                if (pool && pool.gameObject.activeInHierarchy)
+                {
+                    DicePool.Instance.StartCoroutine(Central.DisconnectPeripheralAsync(_peripheral));
+                }
             }
         }
     }

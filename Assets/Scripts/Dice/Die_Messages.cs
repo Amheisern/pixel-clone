@@ -42,6 +42,8 @@ namespace Dice
         void PostMessage<T>(T message)
             where T : IDieMessage
         {
+            CheckRunningOnMainThread();
+
             Debug.Log($"Posting message of type {message.GetType()}");
 
             WriteData(DieMessages.ToByteArray(message), null);
@@ -89,7 +91,7 @@ namespace Dice
             }
             else
             {
-                Debug.LogError($"Timeout on sending message of type {message.GetType()}");
+                Debug.LogWarning($"Timeout on sending message of type {message.GetType()}");
                 timeoutAction?.Invoke();
             }
         }
@@ -171,7 +173,7 @@ namespace Dice
                     Debug.Log($"Die {name} has {flashSize} bytes available for data, current dataset hash {dataSetHash:X08}, firmware version is {firmwareVersionId}");
                     if (appearanceChanged)
                     {
-                        OnAppearanceChanged?.Invoke(this, faceCount, designAndColor);
+                        AppearanceChanged?.Invoke(this, faceCount, designAndColor);
                     }
                     callback?.Invoke(true);
                 },
@@ -222,7 +224,7 @@ namespace Dice
                     var lvlMsg = (DieMessageBatteryLevel)msg;
                     batteryLevel = lvlMsg.level;
                     charging = lvlMsg.charging != 0;
-                    OnBatteryLevelChanged?.Invoke(this, lvlMsg.level, lvlMsg.charging != 0);
+                    BatteryLevelChanged?.Invoke(this, lvlMsg.level, lvlMsg.charging != 0);
                     outLevelAction?.Invoke(this, lvlMsg.level);
                 },
                 () => outLevelAction?.Invoke(this, null)));
@@ -237,7 +239,7 @@ namespace Dice
                 {
                     var rssiMsg = (DieMessageRssi)msg;
                     rssi = rssiMsg.rssi;
-                    OnRssiChanged?.Invoke(this, rssiMsg.rssi);
+                    RssiChanged?.Invoke(this, rssiMsg.rssi);
                     outRssiAction?.Invoke(this, rssiMsg.rssi);
                 },
                 () => outRssiAction?.Invoke(this, null)));
@@ -251,7 +253,7 @@ namespace Dice
                 _ =>
                 {
                     designAndColor = design;
-                    OnAppearanceChanged?.Invoke(this, faceCount, designAndColor);
+                    AppearanceChanged?.Invoke(this, faceCount, designAndColor);
                     callback?.Invoke(true);
                 },
                 () => callback?.Invoke(false)));
@@ -342,7 +344,6 @@ namespace Dice
             PostMessage(new DieMessageProgramDefaultParameters());
         }
 
-
         #region MessageHandlers
 
         void OnStateMessage(IDieMessage message)
@@ -359,7 +360,7 @@ namespace Dice
                 face = newFace;
 
                 // Notify anyone who cares
-                OnStateChanged?.Invoke(this, state, face);
+                StateChanged?.Invoke(this, state, face);
             }
         }
 

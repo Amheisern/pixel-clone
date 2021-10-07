@@ -1,9 +1,7 @@
 ﻿using Dice;
 using System.Collections;
-using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
-using System.Runtime.InteropServices;
 using UnityEngine;
 
 using Central = Systemic.Pixels.Unity.BluetoothLE.Central;
@@ -226,6 +224,8 @@ public sealed partial class DicePool : SingletonMonoBehaviour<DicePool>
                 {
                     BeginScanForDice();
 
+                    Debug.Log("Scanning timeout: " + AppConstants.Instance.ScanTimeout);
+
                     // Wait for all dice to be scanned, or timeout
                     float timeout = Time.realtimeSinceStartup + AppConstants.Instance.ScanTimeout;
                     yield return new WaitUntil(() => dice.All(ed => ed.die != null) || (Time.realtimeSinceStartup > timeout) || UpdateIsCancelled());
@@ -266,7 +266,6 @@ public sealed partial class DicePool : SingletonMonoBehaviour<DicePool>
                         if (string.IsNullOrEmpty(results[i]))
                         {
                             var poolDie = (PoolDie)dice[i].die;
-                            Debug.LogError(poolDie?.name);
                             poolDie?.Disconnect();
                         }
                     }
@@ -292,23 +291,7 @@ public sealed partial class DicePool : SingletonMonoBehaviour<DicePool>
         {
             //while (state != State.Idle) yield return null;
 
-            if (!_editDice.ContainsKey(editDie))
-            {
-                Debug.LogError("Trying to disconnect unknown edit die " + editDie.name);
-            }
-            else if (editDie.die == null)
-            {
-                Debug.LogError("Trying to disconnect unknown die " + editDie.name);
-            }
-            else if (editDie.die.connectionState != DieConnectionState.Ready)
-            {
-                Debug.LogError($"Trying to disconnect die that isn't connected {editDie.name}, current state {editDie.die.connectionState}");
-            }
-            else if (!_pool.Contains(editDie.die))
-            {
-                Debug.LogError("Trying attempting to disconnect unknown pool die " + editDie.name);
-            }
-            else
+            if (CheckDie(editDie))
             {
                 var poolDie = (PoolDie)editDie.die;
 
@@ -318,6 +301,27 @@ public sealed partial class DicePool : SingletonMonoBehaviour<DicePool>
                 yield return new WaitUntil(() => res.HasValue);
             }
         }
+    }
+
+    private bool CheckDie(EditDie editDie)
+    {
+        if (!_editDice.ContainsKey(editDie))
+        {
+            Debug.LogError("Trying to disconnect unknown edit die " + editDie.name);
+        }
+        else if (editDie.die == null)
+        {
+            Debug.LogError("Trying to disconnect unknown die " + editDie.name);
+        }
+        else if (!_pool.Contains(editDie.die))
+        {
+            Debug.LogError("Trying attempting to disconnect unknown pool die " + editDie.name);
+        }
+        else
+        {
+            return true;
+        }
+        return false;
     }
 
     public void ForgetDie(EditDie editDie)
