@@ -34,17 +34,15 @@ public class UIPairedDieToken : MonoBehaviour
     public Sprite buttonExpandedSprite;
 
     public bool expanded => expandGroup.activeSelf;
-    public EditDie die => dieView.die;
 
-    IEnumerator refreshInfoCoroutine;
+    public EditDie die => dieView.die;
 
     public void Setup(EditDie die)
     {
         dieView.Setup(die);
 
         // Connect to all the dice in the pool if possible
-        refreshInfoCoroutine = RefreshInfo();
-        StartCoroutine(refreshInfoCoroutine);
+        StartCoroutine(RefreshInfo());
     }
 
     void Awake()
@@ -117,12 +115,15 @@ public class UIPairedDieToken : MonoBehaviour
         if (die.die != null && die.die.connectionState == DieConnectionState.Ready)
         {
             var newName = Names.GetRandomName();
-            die.die.RenameDie(newName, (res) =>
+            die.die.RenameDie(newName, res =>
             {
-                die.die.name = newName;
-                die.name = newName;
-                AppDataSet.Instance.SaveData();
-                dieView.UpdateState();
+                if (res)
+                {
+                    die.die.name = newName;
+                    die.name = newName;
+                    AppDataSet.Instance.SaveData();
+                    dieView.UpdateState();
+                }
             });
         }
     }
@@ -179,25 +180,24 @@ public class UIPairedDieToken : MonoBehaviour
     {
         while (true)
         {
-            int counter = 0;
+            // Die might be destroyed (-> null) or change state at any time
             while (die.die?.connectionState == DieConnectionState.Ready)
             {
-                if (counter == 0)
-                {
-                    // Fetch battery level every once in a while
-                    bool battLevelReceived = false;
-                    die.die.GetBatteryLevel((d, f) => battLevelReceived = true);
-                    yield return new WaitUntil(() => battLevelReceived == true);
-                }
+                float timeout;
 
-                // Fetch RSSI every time
+                // Fetch battery level
+                bool battLevelReceived = false;
+                timeout = Time.realtimeSinceStartup + Die.AckMessageTimeout + 1;
+                die.die.GetBatteryLevel((d, f) => battLevelReceived = true); // Callback is never called when die is destroyed
+                yield return new WaitUntil(() => battLevelReceived || (Time.realtimeSinceStartup > timeout));
+
+                // Fetch RSSI
                 bool rssiReceived = false;
-                die.die.GetRssi((d, i) => rssiReceived = true);
-                yield return new WaitUntil(() => rssiReceived == true);
+                timeout = Time.realtimeSinceStartup + Die.AckMessageTimeout + 1;
+                die.die.GetRssi((d, i) => rssiReceived = true); // Callback is never called when die is destroyed
+                yield return new WaitUntil(() => rssiReceived || (Time.realtimeSinceStartup > timeout));
 
                 yield return new WaitForSeconds(3.0f);
-
-                counter = (int)Mathf.Repeat(counter + 1, 4);
             }
 
             yield return null;

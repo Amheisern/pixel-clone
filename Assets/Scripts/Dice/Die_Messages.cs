@@ -6,7 +6,7 @@ namespace Dice
 {
     partial class Die
     {
-        const float AckMessageTimeout = 5;
+        public const float AckMessageTimeout = 5;
 
         #region Message Infrastructure
 

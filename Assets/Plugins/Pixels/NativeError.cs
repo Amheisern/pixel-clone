@@ -80,7 +80,7 @@ namespace Systemic.Pixels.Unity.BluetoothLE
         InvalidParameters,
         NotSupported,
         Busy,
-        Unreachable,
+        Timeout,
         ProtocolError,
         AccessDenied,
         Error,

@@ -104,7 +104,14 @@ namespace Systemic.Pixels.Unity.BluetoothLE.Internal.Apple
         [MonoPInvokeCallback(typeof(CentralStateUpdateHandler))]
         static void OnCentralStateUpdate(bool isAvailable)
         {
-            _onBluetoothEvent(isAvailable);
+            try
+            {
+                _onBluetoothEvent(isAvailable);
+            }
+            catch (Exception e)
+            {
+                Debug.LogException(e);
+            }
         }
 
         [MonoPInvokeCallback(typeof(DiscoveredPeripheralHandler))]
@@ -176,29 +183,31 @@ namespace Systemic.Pixels.Unity.BluetoothLE.Internal.Apple
         [MonoPInvokeCallback(typeof(RssiReadHandler))]
         static void OnRssiReadHandler(RequestIndex requestIndex, int rssi, int errorCode, string errorMessage)
         {
-            NativeValueRequestResultHandler<int> handler;
-            lock (_onRssiReadHandlers)
+            try
             {
-                _onRssiReadHandlers.TryGetValue(requestIndex, out handler);
+                NativeValueRequestResultHandler<int> handler;
+                lock (_onRssiReadHandlers)
+                {
+                    _onRssiReadHandlers.TryGetValue(requestIndex, out handler);
+                }
+                if (handler != null)
+                {
+                    handler(rssi, new NativeError(errorCode, errorMessage));
+                }
+                else
+                {
+                    Debug.LogError($"RssiReadHandler handler #{requestIndex} not found");
+                }
             }
-            if (handler != null)
+            catch (Exception e)
             {
-                handler(rssi, new NativeError(errorCode, errorMessage));
-            }
-            else
-            {
-                Debug.LogError($"RssiReadHandler handler #{requestIndex} not found");
+                Debug.LogException(e);
             }
         }
 
         [MonoPInvokeCallback(typeof(ValueChangedHandler))]
         static void OnValueChangedHandler(RequestIndex requestIndex, IntPtr data, UIntPtr length, int errorCode, string errorMessage)
         {
-            var array = new byte[(int)length];
-            if (data != IntPtr.Zero)
-            {
-                Marshal.Copy(data, array, 0, array.Length);
-            }
             try
             {
                 NativeValueChangedHandler handler;
@@ -208,6 +217,11 @@ namespace Systemic.Pixels.Unity.BluetoothLE.Internal.Apple
                 }
                 if (handler != null)
                 {
+                    var array = new byte[(int)length];
+                    if (data != IntPtr.Zero)
+                    {
+                        Marshal.Copy(data, array, 0, array.Length);
+                    }
                     handler(array, new NativeError(errorCode, errorMessage));
                 }
                 else

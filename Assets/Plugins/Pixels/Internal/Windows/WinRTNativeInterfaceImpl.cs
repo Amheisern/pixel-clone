@@ -190,8 +190,17 @@ namespace Systemic.Pixels.Unity.BluetoothLE.Internal.Windows
 
         public PeripheralHandle CreatePeripheral(ulong bluetoothAddress, NativePeripheralConnectionEventHandler onConnectionEvent)
         {
-            PeripheralConnectionEventHandler peripheralConnectionEventHandler = (ulong peripheralId, int connectionEvent, int reason)
-                => onConnectionEvent((ConnectionEvent)connectionEvent, (ConnectionEventReason)reason);
+            PeripheralConnectionEventHandler peripheralConnectionEventHandler = (ulong peripheralId, int connectionEvent, int reason) =>
+            {
+                try
+                {
+                    onConnectionEvent((ConnectionEvent)connectionEvent, (ConnectionEventReason)reason);
+                }
+                catch (Exception e)
+                {
+                    Debug.LogException(e);
+                }
+            };
 
             bool success = pxBleCreatePeripheral(bluetoothAddress, peripheralConnectionEventHandler);
             return new PeripheralHandle(success ? new NativePeripheral(bluetoothAddress, peripheralConnectionEventHandler) : null);
@@ -313,7 +322,7 @@ namespace Systemic.Pixels.Unity.BluetoothLE.Internal.Windows
                 {
                     if (errorCode == 0)
                     {
-                        Debug.Log($"{operation} ==> Request succeeded");
+                        Debug.Log($"{operation} ==> Request successful");
                     }
                     else
                     {

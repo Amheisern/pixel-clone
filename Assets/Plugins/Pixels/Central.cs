@@ -85,6 +85,7 @@ namespace Systemic.Pixels.Unity.BluetoothLE
             public ScannedPeripheral ScannedPeripheral;
             public PeripheralHandle PeripheralHandle;
             public Guid[] RequiredServices;
+            public Action<ScannedPeripheral, bool> ConnectionEvent;
             public bool IsReady;
         }
 
@@ -241,12 +242,23 @@ namespace Systemic.Pixels.Unity.BluetoothLE
                             (connectionEvent, reason) => EnqueueAction(ps, () =>
                             {
                                 Debug.Log($"[BLE:{ps.ScannedPeripheral.Name}] ConnectionEvent => {connectionEvent}{(reason == ConnectionEventReason.Success ? "" : $", reason: { reason}")}");
-                                OnPeripheralConnectionEvent(ps, onConnectionEvent, connectionEvent, reason);
+                                OnPeripheralConnectionEvent(ps, connectionEvent, reason);
                             }));
+
+                        if (ps.PeripheralHandle.IsValid)
+                        {
+                            Debug.Log($"[BLE:{ps.ScannedPeripheral.Name}] Created peripheral");
+                        }
+                        else
+                        {
+                            Debug.LogError($"[BLE:{ps.ScannedPeripheral.Name}] Failed to create peripheral");
+                            onResult(new NativeError((int)Error.Unknown));
+                        }
                     }
 
                     if (ps.PeripheralHandle.IsValid)
                     {
+                        ps.ConnectionEvent = onConnectionEvent;
                         Connect(ps, onResult);
 
                         static void Connect(PeripheralState ps, NativeRequestResultHandler onResult)
@@ -262,7 +274,7 @@ namespace Systemic.Pixels.Unity.BluetoothLE
                                     Debug.Log($"[BLE:{ps.ScannedPeripheral.Name}] Connect result => {error.Code}");
 
                                     if (ps.PeripheralHandle.IsValid
-                                        && ((error.Code == (int)RequestStatus.Unreachable) || (error.Code == (int)RequestStatus.AccessDenied)
+                                        && ((error.Code == (int)RequestStatus.Timeout) || (error.Code == (int)RequestStatus.AccessDenied)
                                             || (error.Code == (int)Internal.Android.AndroidRequestStatus.REASON_TIMEOUT)))
                                     {
                                         // Try again
@@ -275,14 +287,9 @@ namespace Systemic.Pixels.Unity.BluetoothLE
                                 }));
                         }
                     }
-                    else
-                    {
-                        Debug.LogError($"[BLE:{ps.ScannedPeripheral.Name}] Failed to create peripheral");
-                        onResult(new NativeError((int)Error.Unknown));
-                    }
                 });
 
-            static void OnPeripheralConnectionEvent(PeripheralState ps, Action<ScannedPeripheral, bool> onConnectionEvent, ConnectionEvent connectionEvent, ConnectionEventReason reason)
+            static void OnPeripheralConnectionEvent(PeripheralState ps, ConnectionEvent connectionEvent, ConnectionEventReason reason)
             {
                 bool ready = connectionEvent == ConnectionEvent.Ready;
                 bool disconnected = connectionEvent == ConnectionEvent.Disconnected || connectionEvent == ConnectionEvent.FailedToConnect;
@@ -311,12 +318,13 @@ namespace Systemic.Pixels.Unity.BluetoothLE
 
                                 if (ps.PeripheralHandle.IsValid)
                                 {
+                                    // We're done and ready
+                                    Debug.Log($"[BLE:{ps.ScannedPeripheral.Name}] Ready");
+
                                     Debug.Assert(!ps.IsReady);
                                     ps.IsReady = true;
 
-                                    Debug.Log($"[BLE:{ps.ScannedPeripheral.Name}] Ready");
-
-                                    onConnectionEvent(ps.ScannedPeripheral, true);
+                                    ps.ConnectionEvent?.Invoke(ps.ScannedPeripheral, true);
                                 }
                             }));
                     }
@@ -329,7 +337,7 @@ namespace Systemic.Pixels.Unity.BluetoothLE
                     // We were previously connected
                     ps.IsReady = false;
 
-                    onConnectionEvent(ps.ScannedPeripheral, false);
+                    ps.ConnectionEvent?.Invoke(ps.ScannedPeripheral, false);
                 }
             }
         }

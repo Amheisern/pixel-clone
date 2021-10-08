@@ -209,12 +209,13 @@ partial class DicePool
 
                             if ((!connected) && (connectionState != DieConnectionState.Disconnecting))
                             {
-                                string errorMessage = "Disconnected unexpectedly";
-                                Debug.LogError($"Die {name} got error: {errorMessage}");
-
                                 if ((connectionState == DieConnectionState.Connecting) || (connectionState == DieConnectionState.Identifying))
                                 {
-                                    NotifyConnectionResult(errorMessage);
+                                    NotifyConnectionResult("Disconnected unexpectedly");
+                                }
+                                else
+                                {
+                                    Debug.LogError($"{_peripheral.Name}: Got disconnected unexpectedly while in state {connectionState}");
                                 }
 
                                 // Reset connection count
@@ -328,15 +329,27 @@ partial class DicePool
 
                 IEnumerator UpdateInfoCr()
                 {
-                    string errorMessage = null;
-
                     // Ask the die who it is!
-                    yield return GetDieInfo(res => { if (!res) errorMessage = "Failed to get die info"; });
+                    bool? result = null;
+                    yield return GetDieInfo(res => { result = res; });
+                    while (!result.HasValue)
+                    {
+                        yield return null;
+                    }
 
-                    if (errorMessage == null)
+                    string errorMessage = result.HasValue ? null : "Failed to get die info";
+
+                    if ((connectionState == DieConnectionState.Identifying) && (errorMessage == null))
                     {
                         // Get the die initial state
-                        yield return GetDieState(res => { if (!res) errorMessage = "Failed to get die state"; });
+                        result = null;
+                        yield return GetDieState(res => { result = res; });
+                        while (!result.HasValue)
+                        {
+                            yield return null;
+                        }
+
+                        errorMessage = result.HasValue ? null : "Failed to get die state";
                     }
 
                     // Check that we are still in the right state
