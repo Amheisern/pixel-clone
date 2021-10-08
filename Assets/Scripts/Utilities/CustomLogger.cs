@@ -68,13 +68,13 @@ public class CustomLogger : SingletonMonoBehaviour<CustomLogger>
 
     void OnEnable()
     {
-        // Delete older files, we keep the last 20 ones
+        // Delete older files, we keep the most 20 files counting the new one we are about to create
         if (Directory.Exists(LogsDirectory))
         {
             foreach (var fileInfo in Directory.GetFiles(LogsDirectory)
                      .Select(f => new FileInfo(f))
                      .OrderByDescending(f => f.LastWriteTimeUtc)
-                     .Skip(20))
+                     .Skip(19))
             {
                 fileInfo.Delete();
             }

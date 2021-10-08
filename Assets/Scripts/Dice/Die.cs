@@ -60,7 +60,7 @@ namespace Dice
             get => _connectionState;
             protected set
             {
-                CheckRunningOnMainThread();
+                EnsureRunningOnMainThread();
 
                 Debug.Assert(System.Threading.Thread.CurrentThread.ManagedThreadId == 1);
                 if (value != _connectionState)
@@ -84,7 +84,7 @@ namespace Dice
 
         public DieDesignAndColor designAndColor { get; protected set; } = DieDesignAndColor.Unknown;
 
-        public uint deviceId { get; protected set; } = 0;
+        public string systemId { get; protected set; }
 
         public string firmwareVersionId { get; protected set; } = "Unknown";
 
@@ -167,13 +167,11 @@ namespace Dice
 
         protected abstract void WriteData(byte[] bytes, System.Action<Die, bool, string> onWriteResult);
 
-        protected void CheckRunningOnMainThread()
+        protected void EnsureRunningOnMainThread()
         {
             if (System.Threading.Thread.CurrentThread.ManagedThreadId != 1)
             {
-                string msg = $"Method of type {GetType()} call from a thread that is not the main thread";
-                Debug.LogError(msg);
-                throw new System.InvalidOperationException($"Method of type {GetType()} call from a thread that is not the main thread");
+                throw new System.InvalidOperationException($"Methods of type {GetType()} can only be called from the main thread");
             }
         }
     }

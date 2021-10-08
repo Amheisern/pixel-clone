@@ -13,19 +13,19 @@ namespace Systemic.Pixels.Unity.BluetoothLE.Internal.Android
         // @IntRange(from = -128, to = 20)
         void onRssiRead(AndroidJavaObject device, int rssi)
         {
-            Debug.Log("==> onRssiRead " + rssi);
+            Debug.Log($"{Operation.ReadPeripheralRssi} ==> onRssiRead {rssi}");
             _onRssiRead?.Invoke(rssi, NativeError.Empty);
         }
 
         void onRequestFailed(AndroidJavaObject device, int status)
         {
-            Debug.LogError("==> onRequestFailed with status " + (AndroidRequestStatus)status);
+            Debug.LogError($"{Operation.ReadPeripheralRssi} ==> onRequestFailed: {(AndroidRequestStatus)status}");
             _onRssiRead?.Invoke(0, new NativeError(status, "Android error"));
         }
 
         void onInvalidRequest()
         {
-            Debug.LogError("==> onInvalidRequest");
+            Debug.LogError($"{Operation.ReadPeripheralRssi} ==> onInvalidRequest");
             _onRssiRead?.Invoke(0, new NativeError((int)AndroidRequestStatus.REASON_REQUEST_INVALID, "Android error"));
         }
     }

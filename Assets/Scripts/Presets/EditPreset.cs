@@ -27,9 +27,9 @@ namespace Presets
         public override void WriteJson(JsonWriter writer, EditDieAssignment value, JsonSerializer serializer)
         {
             writer.WriteStartObject();
-            writer.WritePropertyName("deviceId");
+            writer.WritePropertyName("systemId");
             if (value.die != null)
-                serializer.Serialize(writer, value.die.deviceId);
+                serializer.Serialize(writer, value.die.systemId);
             else
                 serializer.Serialize(writer, (ulong)0);
             writer.WritePropertyName("behaviorIndex");
@@ -44,8 +44,8 @@ namespace Presets
 
             var ret = new EditDieAssignment();    
             JObject jsonObject = JObject.Load(reader);
-            System.UInt64 deviceId = jsonObject["deviceId"].ToObject<System.UInt64>();
-            ret.die = dataSet.dice.Find(d => d.deviceId == deviceId);
+            var systemId = jsonObject["systemId"]?.ToObject<string>();
+            ret.die = dataSet.dice.Find(d => d.systemId == systemId);
             int behaviorIndex = jsonObject["behaviorIndex"].Value<int>();
             if (behaviorIndex >= 0 && behaviorIndex < dataSet.behaviors.Count)
                 ret.behavior = dataSet.behaviors[behaviorIndex];

@@ -6,7 +6,8 @@ namespace Dice
     public class EditDie
     {
         public string name;
-        public ulong deviceId;
+        //public ulong deviceId;
+        public string systemId;
         public int faceCount; // Which kind of dice this is
         public DieDesignAndColor designAndColor; // Physical look
         public int currentBehaviorIndex;

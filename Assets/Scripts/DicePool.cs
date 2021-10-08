@@ -80,9 +80,53 @@ public sealed partial class DicePool : SingletonMonoBehaviour<DicePool>
         }
     }
 
+    /// <summary>
+    /// Called by Central when a new die is discovered!
+    /// </sumary>
+    void OnPeripheralDiscovered(Peripheral peripheral)
+    {
+        Debug.Log($"Discovered dice {peripheral.Name}");
+
+        // If the die exists, tell it that it's advertising now
+        // otherwise create it (and tell it that its advertising :)
+        var poolDie = _pool.FirstOrDefault(d => peripheral.SystemId == d.SystemId);
+        if (poolDie == null)
+        {
+            // Never seen this die before
+            var dieObj = new GameObject(name);
+            dieObj.transform.SetParent(transform);
+
+            poolDie = dieObj.AddComponent<PoolDie>();
+            poolDie.onDisconnectedUnexpectedly += () => DestroyDie(poolDie);
+            _pool.Add(poolDie);
+        }
+
+        poolDie.Setup(peripheral);
+
+        var editDie = _editDice.Keys.FirstOrDefault(d => d.systemId == poolDie.SystemId);
+        if (editDie != null)
+        {
+            SetDieForEditDie(editDie, poolDie);
+            Debug.Log($"Pairing discovered die: {poolDie.SystemId} - {poolDie.name}");
+        }
+        else
+        {
+            Debug.Log($"Discovered die is unpaired: {poolDie.SystemId} - {poolDie.name}");
+        }
+
+        if (poolDie.connectionState != DieConnectionState.Available)
+        {
+            // All other are errors
+            Debug.LogError($"Discovered die {poolDie.name} in invalid state: {poolDie.connectionState}");
+            //TODO poolDie.SetConnectionState(DieConnectionState.Available);
+        }
+
+        onDieDiscovered?.Invoke(poolDie);
+    }
+
     #endregion
 
-    #region EditDie management
+    #region Die management
 
     Dictionary<EditDie, PoolDie> _editDice = new Dictionary<EditDie, PoolDie>();
     Dictionary<EditDie, PoolDie> _editDiceToDestroy = new Dictionary<EditDie, PoolDie>();
@@ -142,17 +186,20 @@ public sealed partial class DicePool : SingletonMonoBehaviour<DicePool>
                     // And in our map
                     _editDice.Add(editDie, null);
                     onDieAdded?.Invoke(editDie);
-                    SetDieForEditDie(poolDie, editDie);
+                    SetDieForEditDie(editDie, poolDie);
 
                     return editDie;
                 }
 
-                if (poolDie.deviceId != 0)
+                if (!string.IsNullOrEmpty(poolDie.systemId))
                 {
                     AddNewDie();
                 }
                 else
                 {
+                    Debug.LogError($"Die {poolDie.name} doesn't have a system id");
+                }
+                /*{
                     bool? res = null;
                     poolDie.Connect((d, r, s) => res = r);
                     yield return new WaitUntil(() => res.HasValue);
@@ -191,7 +238,7 @@ public sealed partial class DicePool : SingletonMonoBehaviour<DicePool>
                         PixelsApp.Instance.ShowDialogBox("Connection error", $"Could not connect to {poolDie.name} to add it to the dice bag.", "Ok", null, (_) => acknowledge = true);
                         yield return new WaitUntil(() => acknowledge);
                     }
-                }
+                }*/
             }
             PixelsApp.Instance.HideProgrammingBox();
             //state = State.Idle;
@@ -289,48 +336,34 @@ public sealed partial class DicePool : SingletonMonoBehaviour<DicePool>
 
         IEnumerator DisconnectDieCr()
         {
-            //while (state != State.Idle) yield return null;
-
-            if (CheckDie(editDie))
+            if (!_editDice.ContainsKey(editDie))
             {
-                var poolDie = (PoolDie)editDie.die;
+                Debug.LogError($"Trying to disconnect unknown edit die {editDie.name}");
+            }
+            else if (editDie.die != null)
+            {
+                if (!_pool.Contains(editDie.die))
+                {
+                    Debug.LogError($"Trying attempting to disconnect unknown pool die {editDie.name}");
+                }
+                else
+                {
+                    var poolDie = (PoolDie)editDie.die;
 
-                bool? res = null;
-                poolDie.Disconnect((d, r, s) => res = r, forceDisconnect);
+                    bool? res = null;
+                    poolDie.Disconnect((d, r, s) => res = r, forceDisconnect);
 
-                yield return new WaitUntil(() => res.HasValue);
+                    yield return new WaitUntil(() => res.HasValue);
+                }
             }
         }
     }
 
-    private bool CheckDie(EditDie editDie)
-    {
-        if (!_editDice.ContainsKey(editDie))
-        {
-            Debug.LogError("Trying to disconnect unknown edit die " + editDie.name);
-        }
-        else if (editDie.die == null)
-        {
-            Debug.LogError("Trying to disconnect unknown die " + editDie.name);
-        }
-        else if (!_pool.Contains(editDie.die))
-        {
-            Debug.LogError("Trying attempting to disconnect unknown pool die " + editDie.name);
-        }
-        else
-        {
-            return true;
-        }
-        return false;
-    }
-
     public void ForgetDie(EditDie editDie)
     {
-        //while (state != State.Idle) yield return null;
-
         if (!_editDice.ContainsKey(editDie))
         {
-            Debug.LogError("Trying to forget unknown edit die " + editDie.name);
+            Debug.LogError($"Trying to forget unknown edit die {editDie.name}");
         }
         else
         {
@@ -363,9 +396,9 @@ public sealed partial class DicePool : SingletonMonoBehaviour<DicePool>
         return die;
     }
 
-    void SetDieForEditDie(PoolDie poolDie, EditDie editDie)
+    void SetDieForEditDie(EditDie editDie, PoolDie poolDie)
     {
-        if ((editDie != null) && (poolDie != editDie.die))
+        if (poolDie != editDie.die)
         {
             Debug.Assert((poolDie == null) || _pool.Contains(poolDie));
             if (poolDie == null)
@@ -385,6 +418,17 @@ public sealed partial class DicePool : SingletonMonoBehaviour<DicePool>
                 onDieFound?.Invoke(editDie);
             }
         }
+    }
+
+    /// <summary>
+    /// Cleanly destroys a die, disconnecting if necessary and triggering events in the process
+    /// Does not remove it from the list though
+    /// </sumary>
+    void DestroyDie(PoolDie poolDie)
+    {
+        SetDieForEditDie(_editDice.FirstOrDefault(kv => kv.Value == poolDie).Key, null);
+        GameObject.Destroy(poolDie.gameObject);
+        _pool.Remove(poolDie);
     }
 
     #endregion
@@ -409,21 +453,21 @@ public sealed partial class DicePool : SingletonMonoBehaviour<DicePool>
 
     void Update()
     {
-        List<PoolDie> toDestroy = null;
+        List<PoolDie> destroyNow = null;
         foreach (var kv in _editDiceToDestroy)
         {
             if (!kv.Value.isConnectingOrReady)
             {
-                if (toDestroy == null)
+                if (destroyNow == null)
                 {
-                    toDestroy = new List<PoolDie>();
+                    destroyNow = new List<PoolDie>();
                 }
-                toDestroy.Add(kv.Value);
+                destroyNow.Add(kv.Value);
             }
         }
-        if (toDestroy != null)
+        if (destroyNow != null)
         {
-            foreach (var poolDie in toDestroy)
+            foreach (var poolDie in destroyNow)
             {
                 DestroyDie(poolDie);
             }
@@ -431,54 +475,4 @@ public sealed partial class DicePool : SingletonMonoBehaviour<DicePool>
     }
 
     #endregion
-
-    /// <summary>
-    /// Called by Central when a new die is discovered!
-    /// </sumary>
-    void OnPeripheralDiscovered(Peripheral peripheral)
-    {
-        Debug.Log($"Discovered dice {peripheral.Name}");
-
-        // If the die exists, tell it that it's advertising now
-        // otherwise create it (and tell it that its advertising :)
-        var poolDie = _pool.FirstOrDefault(d => peripheral.SystemId == d.SystemId);
-        if (poolDie == null)
-        {
-            // Never seen this die before
-            var dieObj = new GameObject(name);
-            dieObj.transform.SetParent(transform);
-
-            poolDie = dieObj.AddComponent<PoolDie>();
-            poolDie.onDisconnectedUnexpectedly += () => DestroyDie(poolDie);
-            _pool.Add(poolDie);
-        }
-
-        poolDie.Setup(peripheral);
-
-        var editDie = _editDice.Keys.FirstOrDefault(d => AppConstants.FindDiceByDeviceId ? d.deviceId == poolDie.deviceId : d.name == poolDie.name);
-        SetDieForEditDie(poolDie, editDie);
-        Debug.Log($"{(editDie != null ? "Pairing discovered die" : "Discovered die is unpaired")} : {poolDie.deviceId} - {poolDie.name}");
-
-        if (poolDie.connectionState != DieConnectionState.Available)
-        {
-            // All other are errors
-            Debug.LogError($"Die {poolDie.name} in invalid state: {poolDie.connectionState}");
-            //TODO poolDie.SetConnectionState(DieConnectionState.Available);
-        }
-
-        onDieDiscovered?.Invoke(poolDie);
-    }
-
-    /// <summary>
-    /// Cleanly destroys a die, disconnecting if necessary and triggering events in the process
-    /// Does not remove it from the list though
-    /// </sumary>
-    void DestroyDie(PoolDie poolDie)
-    {
-        Debug.LogError("DestroyDie");
-
-        SetDieForEditDie(null, _editDice.FirstOrDefault(kv => kv.Value == poolDie).Key);
-        GameObject.Destroy(poolDie.gameObject);
-        _pool.Remove(poolDie);
-    }
 }

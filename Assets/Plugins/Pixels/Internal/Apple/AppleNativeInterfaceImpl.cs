@@ -271,7 +271,8 @@ namespace Systemic.Pixels.Unity.BluetoothLE.Internal.Apple
             pxBleReleasePeripheral(GetPeripheralId(peripheral));
         }
 
-        public void ConnectPeripheral(PeripheralHandle peripheral, string requiredServicesUuids, NativeRequestResultHandler onResult)
+        //TODO on iOS connect waits indefinitely and autoConnect is ignored
+        public void ConnectPeripheral(PeripheralHandle peripheral, string requiredServicesUuids, bool autoConnect, NativeRequestResultHandler onResult)
         {
             var requestIndex = SetRequestHandler(onResult);
 

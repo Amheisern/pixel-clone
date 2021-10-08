@@ -54,7 +54,7 @@ partial class DicePool
 
         public void Setup(Peripheral peripheral)
         {
-            CheckRunningOnMainThread();
+            EnsureRunningOnMainThread();
 
             if (peripheral == null) throw new System.ArgumentNullException(nameof(peripheral));
 
@@ -69,6 +69,7 @@ partial class DicePool
             }
 
             _peripheral = peripheral;
+            systemId = _peripheral.SystemId;
             name = _peripheral.Name;
 
             if (_peripheral.ManufacturerData?.Count > 0)
@@ -87,7 +88,6 @@ partial class DicePool
                     bool rollStateChanged = state != advData.rollState || face != advData.currentFace;
                     faceCount = advData.faceCount;
                     designAndColor = advData.designAndColor;
-                    deviceId = advData.deviceId;
                     state = advData.rollState;
                     face = advData.currentFace;
                     batteryLevel = advData.batteryLevel / 255f;
@@ -114,19 +114,19 @@ partial class DicePool
 
         public void ResetLastError()
         {
-            CheckRunningOnMainThread();
+            EnsureRunningOnMainThread();
 
             lastError = DieLastError.None;
         }
 
         public void Connect(ConnectionResultHandler onConnectionResult = null)
         {
-            CheckRunningOnMainThread();
+            EnsureRunningOnMainThread();
 
             void IncrementConnectCount()
             {
                 ++_connectionCount;
-                Debug.Log($"{name}: connect => counter={_connectionCount}");
+                Debug.Log($"Die {name} connecting, counter={_connectionCount}");
             }
 
             switch (connectionState)
@@ -158,7 +158,7 @@ partial class DicePool
 
         public void Disconnect(ConnectionResultHandler onDisconnectionResult = null, bool forceDisconnect = false)
         {
-            CheckRunningOnMainThread();
+            EnsureRunningOnMainThread();
 
             switch (connectionState)
             {
@@ -172,7 +172,7 @@ partial class DicePool
                     Debug.Assert(_connectionCount > 0);
                     _connectionCount = forceDisconnect ? 0 : Mathf.Max(0, _connectionCount - 1);
 
-                    Debug.Log($"{name}: disconnect => counter={_connectionCount}, forceDisconnect={forceDisconnect}");
+                    Debug.Log($"Die {name} disconnecting, counter={_connectionCount}, forceDisconnect={forceDisconnect}");
 
                     if (_connectionCount == 0)
                     {
@@ -201,15 +201,16 @@ partial class DicePool
                 {
                     var request = Central.ConnectPeripheralAsync(_peripheral, (p, connected) =>
                     {
+                        // Is Unity behavior still valid?
                         if (this != null)
                         {
-                            Debug.Assert(_peripheral == p);
-                            Debug.Log($"{name}: peripheral {(connected ? "" : "dis")}connected");
+                            Debug.Assert(_peripheral.SystemId == p.SystemId);
+                            Debug.Log($"Die {name} is {(connected ? "" : "dis")}connected");
 
                             if ((!connected) && (connectionState != DieConnectionState.Disconnecting))
                             {
                                 string errorMessage = "Disconnected unexpectedly";
-                                Debug.LogError($"{name}: {errorMessage}");
+                                Debug.LogError($"Die {name} got error: {errorMessage}");
 
                                 if ((connectionState == DieConnectionState.Connecting) || (connectionState == DieConnectionState.Identifying))
                                 {
@@ -241,15 +242,19 @@ partial class DicePool
                             {
                                 request = Central.SubscribeCharacteristicAsync(_peripheral, pixelService, subscribeCharacteristic, data =>
                                 {
-                                    // Process the message coming from the actual die!
-                                    var message = DieMessages.FromByteArray(data);
-                                    if (message != null)
+                                    // Is Unity behavior still valid?
+                                    if (this != null)
                                     {
-                                        Debug.Log($"{name}: Got message of type {message.GetType()}");
-
-                                        if (messageDelegates.TryGetValue(message.type, out MessageReceivedDelegate del))
+                                        // Process the message coming from the actual die!
+                                        var message = DieMessages.FromByteArray(data);
+                                        if (message != null)
                                         {
-                                            del.Invoke(message);
+                                            Debug.Log($"Die {name} received message of type {message.GetType()}");
+
+                                            if (messageDelegates.TryGetValue(message.type, out MessageReceivedDelegate del))
+                                            {
+                                                del.Invoke(message);
+                                            }
                                         }
                                     }
                                 });
@@ -260,9 +265,13 @@ partial class DicePool
                                     errorMessage = "Subscribe request failed";
                                 }
                             }
+                            else if (characteristics == null)
+                            {
+                                errorMessage = "Characteristics request failed";
+                            }
                             else
                             {
-                                errorMessage = "Characteristics request failed or returned unexpected value";
+                                errorMessage = "Missing required characteristics";
                             }
                         }
                         else
@@ -291,13 +300,13 @@ partial class DicePool
                         else
                         {
                             // Wrong state, just abort without notifying
-                            Debug.Log($"{name}: Connect sequence interrupted");
+                            Debug.Log($"Die {name} connect sequence interrupted");
                         }
                     }
                     else
                     {
                         // Wrong state, just abort without notifying
-                        Debug.Log($"{name}: Connect sequence interrupted");
+                        Debug.Log($"Die {name} connect sequence interrupted");
                     }
                 }
             }
@@ -354,7 +363,7 @@ partial class DicePool
                     else
                     {
                         // Wrong state, just abort without notifying
-                        Debug.Log($"{name}: Identify sequence interrupted");
+                        Debug.Log($"Die {name} identifying sequence interrupted");
                     }
                 }
             }
@@ -392,23 +401,14 @@ partial class DicePool
 
                 IEnumerator DisconnectAsync()
                 {
-                    var request = Central.DisconnectPeripheralAsync(_peripheral);
-                    yield return request;
+                    yield return Central.DisconnectPeripheralAsync(_peripheral);
 
                     Debug.Assert(_connectionCount == 0);
-                    if (request.IsSuccess)
-                    {
-                        connectionState = DieConnectionState.Available;
-                    }
-                    else
-                    {
-                        // Could not disconnect the die, indicate that!
-                        SetLastError(DieLastError.ConnectionError);
-                    }
+                    connectionState = DieConnectionState.Available;
 
                     var callbackCopy = onDisconnectionResult;
                     onDisconnectionResult = null;
-                    callbackCopy?.Invoke(this, request.IsSuccess, request?.ErrorMessage);
+                    callbackCopy?.Invoke(this, true, null); // Always return a success
                 }
             }
         }
@@ -424,7 +424,7 @@ partial class DicePool
 
         protected override void WriteData(byte[] bytes, System.Action<Die, bool, string> onWriteResult)
         {
-            CheckRunningOnMainThread();
+            EnsureRunningOnMainThread();
 
             StartCoroutine(WriteAsync());
 
@@ -446,7 +446,7 @@ partial class DicePool
             _connectionCount = 0;
             connectionState = DieConnectionState.Invalid;
 
-            Debug.Log($"{name}: goodbye! (was connecting or connected: {disconnect})");
+            Debug.Log($"Die {name} destroyed (was connecting or connected: {disconnect})");
 
             if (disconnect)
             {

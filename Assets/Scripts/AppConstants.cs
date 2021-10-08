@@ -16,8 +16,5 @@ public class AppConstants : SingletonMonoBehaviour<AppConstants>
     public float MultiDiceRootRotationSpeedVar = 0.4f;
     public string AudioClipsFolderName = "AudioClips";
     public Color AudioClipsWaveformColor = Color.blue;
-
-    // Not editable:
-    public static bool FindDiceByDeviceId { get; } = true; // false when using Windows BLE win32 manager
 }
 

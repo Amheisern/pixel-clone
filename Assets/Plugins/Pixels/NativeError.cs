@@ -81,7 +81,8 @@ namespace Systemic.Pixels.Unity.BluetoothLE
         NotSupported,
         Busy,
         Unreachable,
-        GattError,
+        ProtocolError,
+        AccessDenied,
         Error,
         Canceled,
     }

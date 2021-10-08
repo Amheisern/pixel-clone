@@ -9,6 +9,6 @@ namespace Systemic.Pixels.Unity.BluetoothLE
 
         public INativePeripheral SystemClient { get; }
 
-        public bool IsEmpty => SystemClient == null;
+        public bool IsValid => SystemClient != null;
     }
 }

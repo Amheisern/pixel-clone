@@ -42,7 +42,7 @@ namespace Dice
         void PostMessage<T>(T message)
             where T : IDieMessage
         {
-            CheckRunningOnMainThread();
+            EnsureRunningOnMainThread();
 
             Debug.Log($"Posting message of type {message.GetType()}");
 
@@ -91,7 +91,7 @@ namespace Dice
             }
             else
             {
-                Debug.LogWarning($"Timeout on sending message of type {message.GetType()}");
+                Debug.LogError($"Timeout on sending message of type {message.GetType()}");
                 timeoutAction?.Invoke();
             }
         }
@@ -166,7 +166,6 @@ namespace Dice
                     bool appearanceChanged = faceCount != idMsg.faceCount || designAndColor != idMsg.designAndColor;
                     faceCount = idMsg.faceCount;
                     designAndColor = idMsg.designAndColor;
-                    deviceId = idMsg.deviceId;
                     dataSetHash = idMsg.dataSetHash;
                     flashSize = idMsg.flashSize;
                     firmwareVersionId = idMsg.versionInfo;

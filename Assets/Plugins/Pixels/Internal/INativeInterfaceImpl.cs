@@ -11,7 +11,7 @@ namespace Systemic.Pixels.Unity.BluetoothLE.Internal
         PeripheralHandle CreatePeripheral(ulong bluetoothAddress, NativePeripheralConnectionEventHandler onConnectionEvent);
         PeripheralHandle CreatePeripheral(ScannedPeripheral peripheral, NativePeripheralConnectionEventHandler onConnectionEvent);
         void ReleasePeripheral(PeripheralHandle peripheral);
-        void ConnectPeripheral(PeripheralHandle peripheral, string requiredServicesUuids, NativeRequestResultHandler onResult);
+        void ConnectPeripheral(PeripheralHandle peripheral, string requiredServicesUuids, bool autoConnect, NativeRequestResultHandler onResult);
         void DisconnectPeripheral(PeripheralHandle peripheral, NativeRequestResultHandler onResult);
         string GetPeripheralName(PeripheralHandle peripheral);
         int GetPeripheralMtu(PeripheralHandle peripheral);

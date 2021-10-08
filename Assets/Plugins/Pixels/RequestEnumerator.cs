@@ -8,6 +8,7 @@ namespace Systemic.Pixels.Unity.BluetoothLE
         ConnectPeripheral,
         DisconnectPeripheral,
         ReadPeripheralRssi,
+        RequestPeripheralMtu,
         ReadCharacteristic,
         WriteCharacteristic,
         SubscribeCharacteristic,

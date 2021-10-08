@@ -157,6 +157,11 @@ public class Peripheral
 		    return super.enableNotifications(characteristic);
         }
 
+        public void cancelOperations()
+        {
+            super.cancelQueue();
+        }
+
         @Override
         public void log(final int priority, final String message)
         {
@@ -200,7 +205,7 @@ public class Peripheral
         _client.setConnectionObserver(connectionObserver);
     }
 
-    public void connect(final String requiredServicesUuids, final RequestCallback callback)
+    public void connect(final String requiredServicesUuids, final boolean autoConnect, final RequestCallback callback)
     {
         Log.v(TAG, "==> connect");
 
@@ -227,16 +232,10 @@ public class Peripheral
 
         _requiredServices = requiredServices;
 
-        _client.connect(_device)//.useAutoConnect(true)
-            .timeout(0)
-            .done(new SuccessCallback()
-            {
-                public void onRequestCompleted(final BluetoothDevice device)
-                {
-                    callback.onRequestCompleted(device);
-                }
-            })
-            .fail(callback).invalid(callback)
+        _client.connect(_device)
+            .useAutoConnect(autoConnect)
+            .timeout(0) // Actually Android will timeout after 30s
+            .done(callback).fail(callback).invalid(callback)
             .enqueue();
     }
 
@@ -244,8 +243,13 @@ public class Peripheral
     {
         Log.v(TAG, "==> disconnect");
 
+        // First cancel all on-going operations
+        _client.cancelOperations();
+
+        // Disconnect (request might fail if we are already disconnected,
+        // we could check the client connection state but since operations are asynchronous
+        // it might change by the time the disconnect is processed anyways)
         _client.disconnect()
-            //.timeout(0) TODO
             .done(callback).fail(callback).invalid(callback)
             .enqueue();
     }

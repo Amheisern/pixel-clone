@@ -14,14 +14,14 @@ namespace Systemic.Pixels.Unity.BluetoothLE.Internal.Android
 
         void onScanResult(AndroidJavaObject device, string advertisementDataJson)
         {
-            Debug.Log(advertisementDataJson);
+            Debug.Log($"==> onScanResult: {advertisementDataJson}");
 
             _onScanResult?.Invoke(device, JsonUtility.FromJson<AdvertisementDataJson>(advertisementDataJson));
         }
 
         void onScanFailed(string error)
         {
-            Debug.Log(error);
+            Debug.Log($"==> onScanFailed: {error}");
         }
     }
 }

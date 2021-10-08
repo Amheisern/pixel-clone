@@ -84,7 +84,25 @@ public class AppDataSet : SingletonMonoBehaviour<AppDataSet>
     {
         data.Clear();
         serializer.Populate(reader, data);
-        foreach (var editDie in dice)
+        // Remove dice with no system id (previous versions had a device id instead)
+        foreach (var d in dice.Where(d => string.IsNullOrEmpty(d.systemId)))
+        {
+            Debug.LogWarning($"Removing die {d.name} from data because it has no system id");
+        }
+        dice.RemoveAll(d => string.IsNullOrEmpty(d.systemId));
+        // Remove dice with no system id from presets
+        foreach (var pr in presets)
+        {
+            foreach (var assignement in pr.dieAssignments)
+            {
+                if (string.IsNullOrEmpty(assignement.die.systemId))
+                {
+                    assignement.die = null;
+                }
+            }
+        }
+
+        foreach (var editDie in data.dice)
         {
             editDie.OnAfterDeserialize();
         }
@@ -115,10 +133,14 @@ public class AppDataSet : SingletonMonoBehaviour<AppDataSet>
 
     public EditDie AddNewDie(Die die)
     {
+        if (string.IsNullOrEmpty(die.systemId))
+        {
+            throw new System.Exception($"Die {die.name} doesn't have a system id");
+        }
         var ret = new EditDie()
         {
             name = die.name,
-            deviceId = die.deviceId,
+            systemId = die.systemId,
             faceCount = die.faceCount,
             designAndColor = die.designAndColor,
         };
@@ -462,7 +484,7 @@ public class AppDataSet : SingletonMonoBehaviour<AppDataSet>
         var die0 = new EditDie()
         {
             name = "Die 000",
-            deviceId = 0x123456789ABCDEF0,
+            systemId = "test:123456789ABCDEF0",
             faceCount = 20,
             designAndColor = DieDesignAndColor.V3_Orange
         };
@@ -470,7 +492,7 @@ public class AppDataSet : SingletonMonoBehaviour<AppDataSet>
         var die1 = new EditDie()
         {
             name = "Die 001",
-            deviceId = 0xABCDEF0123456789,
+            systemId = "test:ABCDEF0123456789",
             faceCount = 20,
             designAndColor = DieDesignAndColor.V5_Black
         };
@@ -478,7 +500,7 @@ public class AppDataSet : SingletonMonoBehaviour<AppDataSet>
         var die2 = new EditDie()
         {
             name = "Die 002",
-            deviceId = 0xCDEF0123456789AB,
+            systemId = "test:CDEF0123456789AB",
             faceCount = 20,
             designAndColor = DieDesignAndColor.V5_Grey
         };
@@ -486,7 +508,7 @@ public class AppDataSet : SingletonMonoBehaviour<AppDataSet>
         var die3 = new EditDie()
         {
             name = "Die 003",
-            deviceId = 0xEF0123456789ABCD,
+            systemId = "test:EF0123456789ABCD",
             faceCount = 20,
             designAndColor = DieDesignAndColor.V5_Gold
         };

@@ -64,10 +64,9 @@ public class UIScanView
     {
         // Assume all scanned dice will be destroyed
         var toDestroy = new List<UIDiscoveredDieView>(discoveredDice);
-        foreach (var die in DicePool.Instance.scannedDice.Where(d =>
-            d.connectionState == DieConnectionState.Available))
+        foreach (var die in DicePool.Instance.scannedDice.Where(d => d.connectionState == DieConnectionState.Available))
         {
-            if (!DicePool.Instance.allDice.Any(d => d.die == die || (d.deviceId != 0 && d.deviceId == die.deviceId) || d.name == die.name))
+            if (!DicePool.Instance.allDice.Any(d => d.systemId == die.systemId))
             {
                 // It's an advertising die we don't *know* about
                 int prevIndex = toDestroy.FindIndex(uid => uid.die == die);

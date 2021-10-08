@@ -11,7 +11,6 @@ public class UIDiscoveredDieView : MonoBehaviour
     public Image backgroundImage;
     public RawImage dieRenderImage;
     public Text dieNameText;
-    public Text dieIDText;
     public UIDieLargeBatteryView batteryView;
     public UIDieLargeSignalView signalView;
     public Button selectButton;
@@ -38,14 +37,7 @@ public class UIDiscoveredDieView : MonoBehaviour
             dieRenderImage.texture = dieRenderer.renderTexture;
         }
         dieNameText.text = die.name;
-        if (die.deviceId != 0)
-        {
-            dieIDText.text = "ID: " + die.deviceId.ToString("X08");
-        }
-        else
-        {
-            dieIDText.text = "ID: Unavailable";
-        }
+
         batteryView.SetLevel(die.batteryLevel, die.charging);
         signalView.SetRssi(die.rssi);
         die.BatteryLevelChanged += OnBatteryLevelChanged;

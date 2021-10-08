@@ -179,26 +179,26 @@ namespace Systemic.Pixels.Unity.BluetoothLE
 
         public static void ReleasePeripheral(PeripheralHandle peripheral)
         {
-            if (peripheral.SystemClient == null) throw new ArgumentException("PeripheralHandle has a null SystemClient", nameof(peripheral));
+            if (!peripheral.IsValid) throw new ArgumentException("Invalid PeripheralHandle", nameof(peripheral));
 
             SanityCheck();
 
             _impl.ReleasePeripheral(peripheral);
         }
 
-        public static void ConnectPeripheral(PeripheralHandle peripheral, IEnumerable<Guid> requiredServices, NativeRequestResultHandler onResult)
+        public static void ConnectPeripheral(PeripheralHandle peripheral, IEnumerable<Guid> requiredServices, bool autoConnect, NativeRequestResultHandler onResult)
         {
-            if (peripheral.SystemClient == null) throw new ArgumentException("PeripheralHandle has a null SystemClient", nameof(peripheral));
+            if (!peripheral.IsValid) throw new ArgumentException("Invalid PeripheralHandle", nameof(peripheral));
             if (onResult == null) throw new ArgumentNullException(nameof(onResult));
 
             SanityCheck();
 
-            _impl.ConnectPeripheral(peripheral, ToString(requiredServices), onResult);
+            _impl.ConnectPeripheral(peripheral, ToString(requiredServices), autoConnect, onResult);
         }
 
         public static void DisconnectPeripheral(PeripheralHandle peripheral, NativeRequestResultHandler onResult)
         {
-            if (peripheral.SystemClient == null) throw new ArgumentException("PeripheralHandle has a null SystemClient", nameof(peripheral));
+            if (!peripheral.IsValid) throw new ArgumentException("Invalid PeripheralHandle", nameof(peripheral));
             if (onResult == null) throw new ArgumentNullException(nameof(onResult));
 
             SanityCheck();
@@ -208,7 +208,7 @@ namespace Systemic.Pixels.Unity.BluetoothLE
 
         public static string GetPeripheralName(PeripheralHandle peripheral)
         {
-            if (peripheral.SystemClient == null) throw new ArgumentException("PeripheralHandle has a null SystemClient", nameof(peripheral));
+            if (!peripheral.IsValid) throw new ArgumentException("Invalid PeripheralHandle", nameof(peripheral));
 
             SanityCheck();
 
@@ -217,7 +217,7 @@ namespace Systemic.Pixels.Unity.BluetoothLE
 
         public static int GetPeripheralMtu(PeripheralHandle peripheral)
         {
-            if (peripheral.SystemClient == null) throw new ArgumentException("PeripheralHandle has a null SystemClient", nameof(peripheral));
+            if (!peripheral.IsValid) throw new ArgumentException("Invalid PeripheralHandle", nameof(peripheral));
 
             SanityCheck();
 
@@ -227,7 +227,7 @@ namespace Systemic.Pixels.Unity.BluetoothLE
         // See MinMTU and MaxMTU, supported on Android only
         public static void RequestPeripheralMtu(PeripheralHandle peripheral, int mtu, NativeValueRequestResultHandler<int> onMtuResult)
         {
-            if (peripheral.SystemClient == null) throw new ArgumentException("PeripheralHandle has a null SystemClient", nameof(peripheral));
+            if (!peripheral.IsValid) throw new ArgumentException("Invalid PeripheralHandle", nameof(peripheral));
             if ((mtu < MinMtu) || (mtu > MaxMtu)) throw new ArgumentException($"MTU must be between {MinMtu} and {MaxMtu}", nameof(mtu));
             if (onMtuResult == null) throw new ArgumentNullException(nameof(onMtuResult));
 
@@ -239,7 +239,7 @@ namespace Systemic.Pixels.Unity.BluetoothLE
         // See MinMTU and MaxMTU, supported on Apple and Android
         public static void ReadPeripheralRssi(PeripheralHandle peripheral, NativeValueRequestResultHandler<int> onRssiRead)
         {
-            if (peripheral.SystemClient == null) throw new ArgumentException("PeripheralHandle has a null SystemClient", nameof(peripheral));
+            if (!peripheral.IsValid) throw new ArgumentException("Invalid PeripheralHandle", nameof(peripheral));
             if (onRssiRead == null) throw new ArgumentNullException(nameof(onRssiRead));
 
             SanityCheck();
@@ -249,14 +249,14 @@ namespace Systemic.Pixels.Unity.BluetoothLE
 
         public static Guid[] GetPeripheralDiscoveredServices(PeripheralHandle peripheral)
         {
-            if (peripheral.SystemClient == null) throw new ArgumentException("PeripheralHandle has a null SystemClient", nameof(peripheral));
+            if (!peripheral.IsValid) throw new ArgumentException("Invalid PeripheralHandle", nameof(peripheral));
 
             return ToGuidArray(_impl.GetPeripheralDiscoveredServices(peripheral));
         }
 
         public static Guid[] GetPeripheralServiceCharacteristics(PeripheralHandle peripheral, Guid service)
         {
-            if (peripheral.SystemClient == null) throw new ArgumentException("PeripheralHandle has a null SystemClient", nameof(peripheral));
+            if (!peripheral.IsValid) throw new ArgumentException("Invalid PeripheralHandle", nameof(peripheral));
             if (service == Guid.Empty) throw new ArgumentException("Empty service UUID", nameof(service));
 
             return ToGuidArray(_impl.GetPeripheralServiceCharacteristics(peripheral, service.ToString()));
@@ -264,7 +264,7 @@ namespace Systemic.Pixels.Unity.BluetoothLE
 
         public static CharacteristicProperties GetCharacteristicProperties(PeripheralHandle peripheral, Guid service, Guid characteristic, uint instanceIndex)
         {
-            if (peripheral.SystemClient == null) throw new ArgumentException("PeripheralHandle has a null SystemClient", nameof(peripheral));
+            if (!peripheral.IsValid) throw new ArgumentException("Invalid PeripheralHandle", nameof(peripheral));
             if (service == Guid.Empty) throw new ArgumentException("Empty service UUID", nameof(service));
             if (characteristic == Guid.Empty) throw new ArgumentException("Empty characteristic UUID", nameof(characteristic));
 
@@ -275,7 +275,7 @@ namespace Systemic.Pixels.Unity.BluetoothLE
 
         public static void ReadCharacteristic(PeripheralHandle peripheral, Guid service, Guid characteristic, uint instanceIndex, NativeValueChangedHandler onValueChanged, NativeRequestResultHandler onResult)
         {
-            if (peripheral.SystemClient == null) throw new ArgumentException("PeripheralHandle has a null SystemClient", nameof(peripheral));
+            if (!peripheral.IsValid) throw new ArgumentException("Invalid PeripheralHandle", nameof(peripheral));
             if (service == Guid.Empty) throw new ArgumentException("Empty service UUID", nameof(service));
             if (characteristic == Guid.Empty) throw new ArgumentException("Empty characteristic UUID", nameof(characteristic));
             if (onValueChanged == null) throw new ArgumentNullException(nameof(onValueChanged));
@@ -288,7 +288,7 @@ namespace Systemic.Pixels.Unity.BluetoothLE
 
         public static void WriteCharacteristic(PeripheralHandle peripheral, Guid service, Guid characteristic, uint instanceIndex, byte[] data, bool withResponse, NativeRequestResultHandler onResult)
         {
-            if (peripheral.SystemClient == null) throw new ArgumentException("PeripheralHandle has a null SystemClient", nameof(peripheral));
+            if (!peripheral.IsValid) throw new ArgumentException("Invalid PeripheralHandle", nameof(peripheral));
             if (service == Guid.Empty) throw new ArgumentException("Empty service UUID", nameof(service));
             if (characteristic == Guid.Empty) throw new ArgumentException("Empty characteristic UUID", nameof(characteristic));
             if (data == null) throw new ArgumentNullException(nameof(data));
@@ -302,7 +302,7 @@ namespace Systemic.Pixels.Unity.BluetoothLE
 
         public static void SubscribeCharacteristic(PeripheralHandle peripheral, Guid service, Guid characteristic, uint instanceIndex, NativeValueChangedHandler onValueChanged, NativeRequestResultHandler onResult)
         {
-            if (peripheral.SystemClient == null) throw new ArgumentException("PeripheralHandle has a null SystemClient", nameof(peripheral));
+            if (!peripheral.IsValid) throw new ArgumentException("Invalid PeripheralHandle", nameof(peripheral));
             if (service == Guid.Empty) throw new ArgumentException("Empty service UUID", nameof(service));
             if (characteristic == Guid.Empty) throw new ArgumentException("Empty characteristic UUID", nameof(characteristic));
             if (onValueChanged == null) throw new ArgumentNullException(nameof(onValueChanged));
@@ -315,7 +315,7 @@ namespace Systemic.Pixels.Unity.BluetoothLE
 
         public static void UnsubscribeCharacteristic(PeripheralHandle peripheral, Guid service, Guid characteristic, uint instanceIndex, NativeRequestResultHandler onResult)
         {
-            if (peripheral.SystemClient == null) throw new ArgumentException("PeripheralHandle has a null SystemClient", nameof(peripheral));
+            if (!peripheral.IsValid) throw new ArgumentException("Invalid PeripheralHandle", nameof(peripheral));
             if (service == Guid.Empty) throw new ArgumentException("Empty service UUID", nameof(service));
             if (characteristic == Guid.Empty) throw new ArgumentException("Empty characteristic UUID", nameof(characteristic));
             if (onResult == null) throw new ArgumentNullException(nameof(onResult));

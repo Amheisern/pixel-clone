@@ -11,7 +11,6 @@ public class UIPairedDieView : MonoBehaviour
     [Header("Controls")]
     public RawImage dieRenderImage;
     public Text dieNameText;
-    public Text dieIDText;
     public Text firmwareIDText;
     public UIDieLargeBatteryView batteryView;
     public UIDieLargeSignalView signalView;
@@ -63,14 +62,6 @@ public class UIPairedDieView : MonoBehaviour
     public void UpdateState()
     {
         dieNameText.text = die.name;
-        if (die.deviceId != 0)
-        {
-            dieIDText.text = "ID: " + die.deviceId.ToString("X08");
-        }
-        else
-        {
-            dieIDText.text = "ID: Unavailable";
-        }
 
         if (die.die == null)
         {

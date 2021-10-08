@@ -17,10 +17,18 @@ namespace Systemic.Pixels.Unity.BluetoothLE
 
         static void EnqueueAction(Action action)
         {
-            if (_instance != null)
+            _instance?._actionQueue.Enqueue(action);
+        }
+
+        static void EnqueueAction(PeripheralState ps, Action action)
+        {
+            _instance?._actionQueue.Enqueue(() =>
             {
-                _instance._actionQueue.Enqueue(action);
-            }
+                if (IsValidPeripheral(ps))
+                {
+                    action();
+                }
+            });
         }
 
         static void CreateBehaviour()
@@ -82,7 +90,7 @@ namespace Systemic.Pixels.Unity.BluetoothLE
 
         public static int RequestTimeout { get; set; } = 5;
 
-        // Dictionary key is peripheral SystemId
+        // Dictionary key is peripheral SystemId, items are never removed except on shutdown
         static Dictionary<string, PeripheralState> _peripherals = new Dictionary<string, PeripheralState>();
 
         public static bool IsReady { get; private set; }
@@ -95,12 +103,11 @@ namespace Systemic.Pixels.Unity.BluetoothLE
         {
             get
             {
-                lock (_peripherals)
-                {
-                    return _peripherals.Values
-                        .Select(ps => ps.ScannedPeripheral)
-                        .ToArray();
-                }
+                EnsureRunningOnMainThread();
+
+                return _peripherals.Values
+                    .Select(ps => ps.ScannedPeripheral)
+                    .ToArray();
             }
         }
 
@@ -108,21 +115,26 @@ namespace Systemic.Pixels.Unity.BluetoothLE
         {
             get
             {
-                lock (_peripherals)
-                {
-                    return _peripherals.Values
-                        .Where(ps => ps.IsReady)
-                        .Select(ps => ps.ScannedPeripheral)
-                        .ToArray();
-                }
+                EnsureRunningOnMainThread();
+
+                return _peripherals.Values
+                    .Where(ps => ps.IsReady)
+                    .Select(ps => ps.ScannedPeripheral)
+                    .ToArray();
             }
         }
 
         public static bool Initialize()
         {
-            CreateBehaviour();
+            EnsureRunningOnMainThread();
 
-            IsReady = false;
+            // Already initialized?
+            if (IsReady)
+            {
+                return true;
+            }
+
+            CreateBehaviour();
 
             bool success = NativeInterface.Initialize(available =>
             {
@@ -141,8 +153,15 @@ namespace Systemic.Pixels.Unity.BluetoothLE
 
         public static void Shutdown()
         {
+            EnsureRunningOnMainThread();
+
             Debug.Log("[BLE] Shutting down");
 
+            // Reset states
+            _peripherals.Clear();
+            IsScanning = IsReady = false;
+
+            // Shutdown native interface and destroy companion mono behavior
             NativeInterface.Shutdown();
             ScheduleDestroy();
         }
@@ -155,6 +174,8 @@ namespace Systemic.Pixels.Unity.BluetoothLE
         /// <remarks>If a scan is already in progress, it will replace it by the new one</remarks>
         public static bool ScanForPeripheralsWithServices(IEnumerable<Guid> serviceUuids = null)
         {
+            EnsureRunningOnMainThread();
+
             if (!IsReady)
             {
                 Debug.LogError("[BLE] Central not ready for scanning");
@@ -164,9 +185,10 @@ namespace Systemic.Pixels.Unity.BluetoothLE
             var requiredServices = serviceUuids?.ToArray() ?? Array.Empty<Guid>();
             IsScanning = NativeInterface.StartScan(serviceUuids, scannedPeripheral =>
             {
+                // Not running on main thread!
                 Debug.Log($"[BLE] Discovered peripheral {scannedPeripheral.Name}, rssi={scannedPeripheral.Rssi}, addr={scannedPeripheral.BluetoothAddress})");
 
-                lock (_peripherals)
+                EnqueueAction(() =>
                 {
                     if (!_peripherals.TryGetValue(scannedPeripheral.SystemId, out PeripheralState ps))
                     {
@@ -174,10 +196,10 @@ namespace Systemic.Pixels.Unity.BluetoothLE
                     }
                     ps.ScannedPeripheral = scannedPeripheral;
                     ps.RequiredServices = requiredServices;
-                }
 
-                // Notify
-                EnqueueAction(() => PeripheralDiscovered?.Invoke(scannedPeripheral));
+                    // Notify
+                    PeripheralDiscovered?.Invoke(scannedPeripheral);
+                });
             });
 
             if (IsScanning)
@@ -194,31 +216,36 @@ namespace Systemic.Pixels.Unity.BluetoothLE
 
         public static void StopScan()
         {
+            EnsureRunningOnMainThread();
+
             Debug.Log($"[BLE] Stopping scan");
 
             NativeInterface.StopScan();
             IsScanning = false;
         }
 
+        //TODO what happens if a connect request is already being processed
         public static RequestEnumerator ConnectPeripheralAsync(ScannedPeripheral peripheral, Action<ScannedPeripheral, bool> onConnectionEvent)
         {
+            EnsureRunningOnMainThread();
+
             PeripheralState ps = GetPeripheralState(peripheral);
+
             return new RequestEnumerator(Operation.ConnectPeripheral, 0,
                 onResult =>
                 {
-                    if (ps.PeripheralHandle.IsEmpty)
+                    if (!ps.PeripheralHandle.IsValid)
                     {
                         ps.IsReady = false;
                         ps.PeripheralHandle = NativeInterface.CreatePeripheral(peripheral,
-                            (connectionEvent, reason) => EnqueueAction(() => OnPeripheralConnectionEvent(ps, onConnectionEvent, connectionEvent, reason)));
+                            (connectionEvent, reason) => EnqueueAction(ps, () =>
+                            {
+                                Debug.Log($"[BLE:{ps.ScannedPeripheral.Name}] ConnectionEvent => {connectionEvent}{(reason == ConnectionEventReason.Success ? "" : $", reason: { reason}")}");
+                                OnPeripheralConnectionEvent(ps, onConnectionEvent, connectionEvent, reason);
+                            }));
                     }
 
-                    if (ps.PeripheralHandle.IsEmpty)
-                    {
-                        Debug.LogError($"[BLE:{ps.ScannedPeripheral.Name}] Failed to create peripheral");
-                        onResult(new NativeError((int)Error.Unknown));
-                    }
-                    else //TODO if ((!ps.IsConnecting) && (!ps.IsReady))
+                    if (ps.PeripheralHandle.IsValid)
                     {
                         Connect(ps, onResult);
 
@@ -229,11 +256,15 @@ namespace Systemic.Pixels.Unity.BluetoothLE
                             NativeInterface.ConnectPeripheral(
                                 ps.PeripheralHandle,
                                 ps.RequiredServices,
-                                error =>
+                                false, //TODO autoConnect
+                                error => EnqueueAction(ps, () =>
                                 {
-                                    if ((error.Code == (int)RequestStatus.Unreachable) && (!ps.PeripheralHandle.IsEmpty))
+                                    Debug.Log($"[BLE:{ps.ScannedPeripheral.Name}] Connect result => {error.Code}");
+
+                                    if (ps.PeripheralHandle.IsValid
+                                        && ((error.Code == (int)RequestStatus.Unreachable) || (error.Code == (int)RequestStatus.AccessDenied)
+                                            || (error.Code == (int)Internal.Android.AndroidRequestStatus.REASON_TIMEOUT)))
                                     {
-                                        Debug.LogError("UNREACHABLE");
                                         // Try again
                                         Connect(ps, onResult);
                                     }
@@ -241,82 +272,101 @@ namespace Systemic.Pixels.Unity.BluetoothLE
                                     {
                                         onResult(error);
                                     }
-                                });
+                                }));
                         }
                     }
-                });
-        }
-
-        static void OnPeripheralConnectionEvent(PeripheralState ps, Action<ScannedPeripheral, bool> onConnectionEvent, ConnectionEvent connectionEvent, ConnectionEventReason reason)
-        {
-            Debug.Log($"[BLE:{ps.ScannedPeripheral.Name}] ConnectionEvent => {connectionEvent}{(reason == ConnectionEventReason.Success ? "" : $", reason: { reason}")}");
-
-            bool ready = connectionEvent == ConnectionEvent.Ready;
-            bool disconnected = connectionEvent == ConnectionEvent.Disconnected || connectionEvent == ConnectionEvent.FailedToConnect;
-
-            if (!disconnected && !ready)
-            {
-                // Nothing to do
-                return;
-            }
-
-            if (ready)
-            {
-                // Change MTU to maximum (note: MTU can only be set once)
-                NativeInterface.RequestPeripheralMtu(ps.PeripheralHandle, NativeInterface.MaxMtu,
-                    (mtu, error) =>
+                    else
                     {
-                        Debug.Log($"[BLE:{ps.ScannedPeripheral.Name}] MTU {(error.IsEmpty ? "changed to" : "is")}: {mtu}");
-                        if (error.HasError && (error.Code != (int)Error.NotSupported))
-                        {
-                            Debug.LogError($"[BLE:{ps.ScannedPeripheral.Name}] error changing MTU: {error}");
-                        }
+                        Debug.LogError($"[BLE:{ps.ScannedPeripheral.Name}] Failed to create peripheral");
+                        onResult(new NativeError((int)Error.Unknown));
+                    }
+                });
 
-                        Debug.Assert(!ps.IsReady);
-                        ps.IsReady = true;
-
-                        onConnectionEvent(ps.ScannedPeripheral, true);
-                    });
-            }
-            else if (ps.IsReady)
+            static void OnPeripheralConnectionEvent(PeripheralState ps, Action<ScannedPeripheral, bool> onConnectionEvent, ConnectionEvent connectionEvent, ConnectionEventReason reason)
             {
-                // We got disconnected
-                Debug.Log($"[BLE:{ps.ScannedPeripheral.Name}] Disconnected");
+                bool ready = connectionEvent == ConnectionEvent.Ready;
+                bool disconnected = connectionEvent == ConnectionEvent.Disconnected || connectionEvent == ConnectionEvent.FailedToConnect;
 
-                // We were previously connected
-                ps.IsReady = false;
+                if (!disconnected && !ready)
+                {
+                    // Nothing to do
+                    return;
+                }
 
-                onConnectionEvent(ps.ScannedPeripheral, false);
+                if (ready)
+                {
+                    //Debug.Log($"[BLE:{ps.ScannedPeripheral.Name}] Peripheral ready, setting MTU");
+
+                    if (ps.PeripheralHandle.IsValid)
+                    {
+                        // Change MTU to maximum (note: MTU can only be set once)
+                        NativeInterface.RequestPeripheralMtu(ps.PeripheralHandle, NativeInterface.MaxMtu,
+                            (mtu, error) => EnqueueAction(ps, () =>
+                            {
+                                Debug.Log($"[BLE:{ps.ScannedPeripheral.Name}] MTU {(error.IsEmpty ? "changed to" : "is")}: {mtu}");
+                                if (error.HasError && (error.Code != (int)Error.NotSupported))
+                                {
+                                    Debug.LogError($"[BLE:{ps.ScannedPeripheral.Name}] error changing MTU: {error}");
+                                }
+
+                                if (ps.PeripheralHandle.IsValid)
+                                {
+                                    Debug.Assert(!ps.IsReady);
+                                    ps.IsReady = true;
+
+                                    Debug.Log($"[BLE:{ps.ScannedPeripheral.Name}] Ready");
+
+                                    onConnectionEvent(ps.ScannedPeripheral, true);
+                                }
+                            }));
+                    }
+                }
+                else if (ps.IsReady)
+                {
+                    // We got disconnected
+                    Debug.Log($"[BLE:{ps.ScannedPeripheral.Name}] Disconnected");
+
+                    // We were previously connected
+                    ps.IsReady = false;
+
+                    onConnectionEvent(ps.ScannedPeripheral, false);
+                }
             }
         }
 
         public static RequestEnumerator DisconnectPeripheralAsync(ScannedPeripheral peripheral)
         {
+            EnsureRunningOnMainThread();
+
             var ps = GetPeripheralState(peripheral);
             var nativePeripheral = ps.PeripheralHandle;
-            ps.IsReady = false;
             ps.PeripheralHandle = new PeripheralHandle();
 
-            //TODO make sure that disconnect always calls onResult (infinite timeout)
             return new RequestEnumerator(Operation.DisconnectPeripheral, 0,
                 onResult => NativeInterface.DisconnectPeripheral(nativePeripheral, onResult),
-                postAction: () => NativeInterface.ReleasePeripheral(nativePeripheral));
+                postAction: () => NativeInterface.ReleasePeripheral(nativePeripheral)); // Release peripheral no matter what
         }
 
         public static string GetPeripheralName(ScannedPeripheral peripheral)
         {
+            EnsureRunningOnMainThread();
+
             var nativePeripheral = GetPeripheralState(peripheral).PeripheralHandle;
             return NativeInterface.GetPeripheralName(nativePeripheral);
         }
 
         public static int GetPeripheralMtu(ScannedPeripheral peripheral)
         {
+            EnsureRunningOnMainThread();
+
             var nativePeripheral = GetPeripheralState(peripheral).PeripheralHandle;
             return NativeInterface.GetPeripheralMtu(nativePeripheral);
         }
 
         public static ValueRequestEnumerator<int> ReadPeripheralRssi(ScannedPeripheral peripheral)
         {
+            EnsureRunningOnMainThread();
+
             var nativePeripheral = GetPeripheralState(peripheral).PeripheralHandle;
             return new ValueRequestEnumerator<int>(Operation.ReadPeripheralRssi, RequestTimeout,
                 onResult => NativeInterface.ReadPeripheralRssi(nativePeripheral, onResult));
@@ -324,29 +374,39 @@ namespace Systemic.Pixels.Unity.BluetoothLE
 
         public static Guid[] GetPeripheralDiscoveredServices(ScannedPeripheral peripheral)
         {
+            EnsureRunningOnMainThread();
+
             var nativePeripheral = GetPeripheralState(peripheral).PeripheralHandle;
             return NativeInterface.GetPeripheralDiscoveredServices(nativePeripheral);
         }
 
         public static Guid[] GetPeripheralServiceCharacteristics(ScannedPeripheral peripheral, Guid serviceUuid)
         {
+            EnsureRunningOnMainThread();
+
             var nativePeripheral = GetPeripheralState(peripheral).PeripheralHandle;
             return NativeInterface.GetPeripheralServiceCharacteristics(nativePeripheral, serviceUuid);
         }
 
         public static CharacteristicProperties GetCharacteristicProperties(ScannedPeripheral peripheral, Guid serviceUuid, Guid characteristicUuid, uint instanceIndex = 0)
         {
+            EnsureRunningOnMainThread();
+
             var nativePeripheral = GetPeripheralState(peripheral).PeripheralHandle;
             return NativeInterface.GetCharacteristicProperties(nativePeripheral, serviceUuid, characteristicUuid, instanceIndex);
         }
 
         public static RequestEnumerator ReadCharacteristicAsync(ScannedPeripheral peripheral, Guid serviceUuid, Guid characteristicUuid, Action<byte[]> onValueChanged)
         {
+            EnsureRunningOnMainThread();
+
             return ReadCharacteristicAsync(peripheral, serviceUuid, characteristicUuid, 0, onValueChanged);
         }
 
         public static RequestEnumerator ReadCharacteristicAsync(ScannedPeripheral peripheral, Guid serviceUuid, Guid characteristicUuid, uint instanceIndex, Action<byte[]> onValueChanged)
         {
+            EnsureRunningOnMainThread();
+
             var nativePeripheral = GetPeripheralState(peripheral).PeripheralHandle;
             return new RequestEnumerator(Operation.ReadCharacteristic, RequestTimeout,
                 onResult => NativeInterface.ReadCharacteristic(
@@ -357,11 +417,15 @@ namespace Systemic.Pixels.Unity.BluetoothLE
 
         public static RequestEnumerator WriteCharacteristicAsync(ScannedPeripheral peripheral, Guid serviceUuid, Guid characteristicUuid, byte[] data, bool withoutResponse = false)
         {
+            EnsureRunningOnMainThread();
+
             return WriteCharacteristicAsync(peripheral, serviceUuid, characteristicUuid, 0, data, withoutResponse);
         }
 
         public static RequestEnumerator WriteCharacteristicAsync(ScannedPeripheral peripheral, Guid serviceUuid, Guid characteristicUuid, uint instanceIndex, byte[] data, bool withoutResponse = false)
         {
+            EnsureRunningOnMainThread();
+
             var nativePeripheral = GetPeripheralState(peripheral).PeripheralHandle;
             return new RequestEnumerator(Operation.WriteCharacteristic, RequestTimeout,
                 onResult => NativeInterface.WriteCharacteristic(
@@ -370,11 +434,15 @@ namespace Systemic.Pixels.Unity.BluetoothLE
 
         public static RequestEnumerator SubscribeCharacteristicAsync(ScannedPeripheral peripheral, Guid serviceUuid, Guid characteristicUuid, Action<byte[]> onValueChanged)
         {
+            EnsureRunningOnMainThread();
+
             return SubscribeCharacteristicAsync(peripheral, serviceUuid, characteristicUuid, 0, onValueChanged);
         }
 
         public static RequestEnumerator SubscribeCharacteristicAsync(ScannedPeripheral peripheral, Guid serviceUuid, Guid characteristicUuid, uint instanceIndex, Action<byte[]> onValueChanged)
         {
+            EnsureRunningOnMainThread();
+
             var nativePeripheral = GetPeripheralState(peripheral).PeripheralHandle;
             return new RequestEnumerator(Operation.SubscribeCharacteristic, RequestTimeout,
                 onResult => NativeInterface.SubscribeCharacteristic(
@@ -385,25 +453,43 @@ namespace Systemic.Pixels.Unity.BluetoothLE
 
         public static RequestEnumerator UnsubscribeCharacteristicAsync(ScannedPeripheral peripheral, Guid serviceUuid, Guid characteristicUuid, uint instanceIndex = 0)
         {
+            EnsureRunningOnMainThread();
+
             var nativePeripheral = GetPeripheralState(peripheral).PeripheralHandle;
             return new RequestEnumerator(Operation.UnsubscribeCharacteristic, RequestTimeout,
                 onResult => NativeInterface.UnsubscribeCharacteristic(
                     nativePeripheral, serviceUuid, characteristicUuid, instanceIndex, onResult));
         }
 
+        static void EnsureRunningOnMainThread()
+        {
+            if (System.Threading.Thread.CurrentThread.ManagedThreadId != 1)
+            {
+                throw new InvalidOperationException($"Methods of type {nameof(Central)} can only be called from the main thread");
+            }
+        }
+
         static PeripheralState GetPeripheralState(ScannedPeripheral scannedPeripheral)
         {
-            lock (_peripherals)
-            {
-                _peripherals.TryGetValue(scannedPeripheral.SystemId, out PeripheralState ps);
-                return ps ?? throw new ArgumentException(nameof(scannedPeripheral), $"No peripheral found with SystemId={scannedPeripheral.SystemId}");
-            }
+            EnsureRunningOnMainThread();
+
+            _peripherals.TryGetValue(scannedPeripheral.SystemId, out PeripheralState ps);
+            return ps ?? throw new ArgumentException(nameof(scannedPeripheral), $"No peripheral found with SystemId={scannedPeripheral.SystemId}");
+        }
+
+        static bool IsValidPeripheral(PeripheralState ps)
+        {
+            EnsureRunningOnMainThread();
+
+            Debug.Assert(ps.ScannedPeripheral != null);
+            return _peripherals.ContainsKey(ps.ScannedPeripheral?.SystemId);
         }
 
         static NativeValueChangedHandler GetNativeHandler(Action<byte[]> onValueChanged, NativeRequestResultHandler onResult)
         {
             return (data, error) =>
             {
+                // Not running on main thread!
                 try
                 {
                     if (error.IsEmpty)

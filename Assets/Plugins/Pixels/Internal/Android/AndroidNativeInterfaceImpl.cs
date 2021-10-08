@@ -125,19 +125,20 @@ namespace Systemic.Pixels.Unity.BluetoothLE.Internal.Android
             ((NativePeripheral)peripheral.SystemClient).Dispose();
         }
 
-        public void ConnectPeripheral(PeripheralHandle peripheral, string requiredServicesUuids, NativeRequestResultHandler onResult)
+        public void ConnectPeripheral(PeripheralHandle peripheral, string requiredServicesUuids, bool autoConnect, NativeRequestResultHandler onResult)
         {
             GetClient(peripheral).Call(
                 "connect",
                 requiredServicesUuids,
-                new RequestCallback(onResult));
+                autoConnect,
+                new RequestCallback(Operation.ConnectPeripheral, onResult));
         }
 
         public void DisconnectPeripheral(PeripheralHandle peripheral, NativeRequestResultHandler onResult)
         {
             GetClient(peripheral).Call(
                 "disconnect",
-                new RequestCallback(onResult));
+                new RequestCallback(Operation.DisconnectPeripheral, onResult));
         }
 
         public string GetPeripheralName(PeripheralHandle peripheral)
@@ -194,7 +195,7 @@ namespace Systemic.Pixels.Unity.BluetoothLE.Internal.Android
                 characteristicUuid,
                 (int)instanceIndex,
                 new DataReceivedCallback(onValueChanged),
-                new RequestCallback(onResult));
+                new RequestCallback(Operation.ReadCharacteristic, onResult));
         }
 
         public void WriteCharacteristic(PeripheralHandle peripheral, string serviceUuid, string characteristicUuid, uint instanceIndex, byte[] data, bool withoutResponse, NativeRequestResultHandler onResult)
@@ -206,7 +207,7 @@ namespace Systemic.Pixels.Unity.BluetoothLE.Internal.Android
                 (int)instanceIndex,
                 JavaUtils.ToSignedArray(data),
                 withoutResponse,
-                new RequestCallback(onResult));
+                new RequestCallback(Operation.WriteCharacteristic, onResult));
         }
 
         // No notification with error on Android
@@ -218,7 +219,7 @@ namespace Systemic.Pixels.Unity.BluetoothLE.Internal.Android
                 characteristicUuid,
                 (int)instanceIndex,
                 new DataReceivedCallback(onValueChanged),
-                new RequestCallback(onResult));
+                new RequestCallback(Operation.SubscribeCharacteristic, onResult));
         }
 
         public void UnsubscribeCharacteristic(PeripheralHandle peripheral, string serviceUuid, string characteristicUuid, uint instanceIndex, NativeRequestResultHandler onResult)
@@ -228,7 +229,7 @@ namespace Systemic.Pixels.Unity.BluetoothLE.Internal.Android
                 serviceUuid,
                 characteristicUuid,
                 (int)instanceIndex,
-                new RequestCallback(onResult));
+                new RequestCallback(Operation.UnsubscribeCharacteristic, onResult));
         }
 
         AndroidJavaObject GetDevice(ScannedPeripheral scannedPeripheral) => ((NativeBluetoothDevice)scannedPeripheral.SystemDevice).Device;
