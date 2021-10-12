@@ -1,10 +1,8 @@
 using System.Collections;
 using System.Collections.Generic;
-using UnityEngine;
 using System.Runtime.InteropServices;
-using System.Linq;
-using System.Reflection;
 using System.Text;
+using UnityEngine;
 
 namespace Dice
 {
@@ -313,7 +311,6 @@ namespace Dice
             }
         }
 
-        // For virtual dice!
         public static byte[] ToByteArray<T>(T message)
             where T : IDieMessage
         {
@@ -324,6 +321,19 @@ namespace Dice
             Marshal.Copy(ptr, ret, 0, size);
             Marshal.FreeHGlobal(ptr);
             return ret;
+        }
+
+        static private Dictionary<System.Type, DieMessageType> _messageTypes = new Dictionary<System.Type, DieMessageType>();
+
+        public static DieMessageType GetMessageType<T>()
+            where T : IDieMessage, new()
+        {
+            if (!_messageTypes.TryGetValue(typeof(T), out DieMessageType type))
+            {
+                type = (new T()).type;
+                _messageTypes.Add(typeof(T), type);
+            }
+            return type;
         }
     }
 

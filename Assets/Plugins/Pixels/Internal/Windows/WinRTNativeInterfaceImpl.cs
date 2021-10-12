@@ -320,7 +320,7 @@ namespace Systemic.Pixels.Unity.BluetoothLE.Internal.Windows
             {
                 try
                 {
-                    if (errorCode == 0)
+                    if (errorCode == BleRequestStatus.Success)
                     {
                         Debug.Log($"{operation} ==> Request successful");
                     }
@@ -329,7 +329,7 @@ namespace Systemic.Pixels.Unity.BluetoothLE.Internal.Windows
                         Debug.LogError($"{operation} ==> Request failed: {errorCode}");
                     }
                     periph.Forget(onRequestStatus);
-                    onResult(new NativeError((int)errorCode, null));
+                    onResult(new NativeError((int)errorCode));
                 }
                 catch (Exception e)
                 {

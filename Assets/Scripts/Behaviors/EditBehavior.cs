@@ -1,8 +1,6 @@
 ﻿using System.Collections;
 using System.Collections.Generic;
-using UnityEngine;
 using System.Linq;
-using Newtonsoft.Json;
 
 namespace Behaviors
 {
@@ -125,6 +123,78 @@ namespace Behaviors
                     yield return clip;
                 }
             }
+        }
+
+        public EditDataSet ToEditSet()
+        {
+            // Generate the data to be uploaded
+            var editSet = new EditDataSet
+            {
+                // Grab the behavior
+                behavior = Duplicate()
+            };
+
+            // And add the animations that this behavior uses
+            var animations = editSet.behavior.CollectAnimations();
+
+            // Add default rules and animations to behavior / set
+            if (AppDataSet.Instance.defaultBehavior != null)
+            {
+                // Rules that are in fact copied over
+                var copiedRules = new List<EditRule>();
+
+                foreach (var rule in AppDataSet.Instance.defaultBehavior.rules)
+                {
+                    if (!editSet.behavior.rules.Any(r => r.condition.type == rule.condition.type))
+                    {
+                        var ruleCopy = rule.Duplicate();
+                        copiedRules.Add(ruleCopy);
+                        editSet.behavior.rules.Add(ruleCopy);
+                    }
+                }
+
+                // Copied animations
+                var copiedAnims = new Dictionary<Animations.EditAnimation, Animations.EditAnimation>();
+
+                // Add animations used by default rules
+                foreach (var editAnim in AppDataSet.Instance.defaultBehavior.CollectAnimations())
+                {
+                    foreach (var copiedRule in copiedRules)
+                    {
+                        if (copiedRule.DependsOnAnimation(editAnim))
+                        {
+                            Animations.EditAnimation copiedAnim = null;
+                            if (!copiedAnims.TryGetValue(editAnim, out copiedAnim))
+                            {
+                                copiedAnim = editAnim.Duplicate();
+                                animations.Add(copiedAnim);
+                                copiedAnims.Add(editAnim, copiedAnim);
+                            }
+                            copiedRule.ReplaceAnimation(editAnim, copiedAnim);
+                        }
+                    }
+                }
+            }
+
+            editSet.animations.AddRange(animations);
+
+            foreach (var pattern in AppDataSet.Instance.patterns)
+            {
+                bool asRGB = false;
+                if (animations.Any(anim => anim.DependsOnPattern(pattern, out asRGB)))
+                {
+                    if (asRGB)
+                    {
+                        editSet.rgbPatterns.Add(pattern);
+                    }
+                    else
+                    {
+                        editSet.patterns.Add(pattern);
+                    }
+                }
+            }
+
+            return editSet;
         }
     }
 }

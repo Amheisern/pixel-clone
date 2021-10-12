@@ -201,167 +201,123 @@ public class PixelsApp : SingletonMonoBehaviour<PixelsApp>
         UpdateDieDataSet(editDieAssignment.behavior, editDieAssignment.die, callback);
     }
 
-    public void UpdateDieDataSet(Behaviors.EditBehavior behavior, Dice.EditDie die, System.Action<bool> callback = null)
+    public void UpdateDieDataSet(EditBehavior behavior, EditDie die, System.Action<bool> callback = null)
     {
         // Make sure the die is ready!
-        ShowProgrammingBox("Connecting to " + die.name + "...");
-        DicePool.Instance.ConnectDice(new[] { die }, () => !gameObject.activeInHierarchy, (editDie, res, message) =>
+        ShowProgrammingBox($"Connecting to {die.name}...");
+
+        DicePool.Instance.ConnectDice(new[] { die }, () => !gameObject.activeInHierarchy, (editDie, res, err) =>
         {
-            if (res)
+            if (gameObject.activeInHierarchy && res)
             {
-                // The die is ready to be uploaded to
+                // Upload the behavior data
+                StartCoroutine(UploadCr());
 
-                // Generate the data to be uploaded
-                EditDataSet editSet = new EditDataSet();
-
-                // Grab the behavior
-                editSet.behavior = behavior.Duplicate();
-
-                // And add the animations that this behavior uses
-                var animations = editSet.behavior.CollectAnimations();
-
-                // Add default rules and animations to behavior / set
-                if (AppDataSet.Instance.defaultBehavior != null)
+                IEnumerator UploadCr()
                 {
-                    // Rules that are in fact copied over
-                    var copiedRules = new List<EditRule>();
+                    bool success = false;
+                    string errorTitle = null;
+                    string error = null;
 
-                    foreach (var rule in AppDataSet.Instance.defaultBehavior.rules)
+                    try
                     {
-                        if (!editSet.behavior.rules.Any(r => r.condition.type == rule.condition.type))
-                        {
-                            var ruleCopy = rule.Duplicate();
-                            copiedRules.Add(ruleCopy);
-                            editSet.behavior.rules.Add(ruleCopy);
-                        }
-                    }
+                        // The die is ready to be uploaded to
+                        var dataSet = behavior.ToEditSet().ToDataSet();
 
-                    // Copied animations
-                    var copiedAnims = new Dictionary<Animations.EditAnimation, Animations.EditAnimation>();
+                        // Get the hash directly from the die
+                        yield return editDie.die.GetDieInfoAsync((res, err) => (success, error) = (res, err));
 
-                    // Add animations used by default rules
-                    foreach (var editAnim in AppDataSet.Instance.defaultBehavior.CollectAnimations())
-                    {
-                        foreach (var copiedRule in copiedRules)
+                        if (success)
                         {
-                            if (copiedRule.DependsOnAnimation(editAnim))
+                            // Check the dataset against the one stored in the die
+                            var hash = dataSet.ComputeHash();
+
+                            if (hash != editDie.die.dataSetHash)
                             {
-                                Animations.EditAnimation copiedAnim = null;
-                                if (!copiedAnims.TryGetValue(editAnim, out copiedAnim))
+                                // We need to upload the dataset first
+                                Debug.Log("Uploading dataset to die " + editDie.name);
+                                var dataSetDataSize = dataSet.ComputeDataSetDataSize();
+
+                                Debug.Log("Dataset data size " + dataSetDataSize);
+                                UpdateProgrammingBox(0.0f, $"Uploading data to {editDie.name}...");
+
+                                // Upload dataset
+                                success = false;
+                                error = null;
+                                StartCoroutine(editDie.die.UploadDataSetAsync(
+                                    dataSet,
+                                    (res, err) => (success, error) = (res, err),
+                                    progress => UpdateProgrammingBox(progress, $"Uploading data to {editDie.name}...")));
+
+                                yield return new WaitUntil(() => success || (error != null));
+
+                                if (success)
                                 {
-                                    copiedAnim = editAnim.Duplicate();
-                                    animations.Add(copiedAnim);
-                                    copiedAnims.Add(editAnim, copiedAnim);
-                                }
-                                copiedRule.ReplaceAnimation(editAnim, copiedAnim);
-                            }
-                        }
-                    }
-                }
+                                    // Check hash returned from die
+                                    success = false;
+                                    error = null;
+                                    yield return editDie.die.GetDieInfoAsync((res, err) => (success, error) = (res, err));
 
-                editSet.animations.AddRange(animations);
-
-                foreach (var pattern in AppDataSet.Instance.patterns)
-                {
-                    bool asRGB = false;
-                    if (animations.Any(anim => anim.DependsOnPattern(pattern, out asRGB)))
-                    {
-                        if (asRGB)
-                        {
-                            editSet.rgbPatterns.Add(pattern);
-                        }
-                        else
-                        {
-                            editSet.patterns.Add(pattern);
-                        }
-                    }
-                }
-
-                // Set the behavior
-                var dataSet = editSet.ToDataSet();
-
-                // Check the dataset against the one stored in the die
-                var hash = dataSet.ComputeHash();
-
-                // Get the hash directly from the die
-                editDie.die.GetDieInfo(info_res =>
-                {
-                    if (info_res)
-                    {
-                        if (hash != editDie.die.dataSetHash)
-                        {
-                            // We need to upload the dataset first
-                            Debug.Log("Uploading dataset to die " + editDie.name);
-                            var dataSetDataSize = dataSet.ComputeDataSetDataSize();
-                            Debug.Log("Dataset data size " + dataSetDataSize);
-                            UpdateProgrammingBox(0.0f, "Uploading data to " + editDie.name + "...");
-                            editDie.die.UploadDataSet(dataSet,
-                            (pct) =>
-                            {
-                                UpdateProgrammingBox(pct, "Uploading data to " + editDie.name + "...");
-                            },
-                            (res2, errorMsg) =>
-                            {
-                                if (res2)
-                                {
-                                    editDie.die.GetDieInfo(res3 =>
+                                    if (success)
                                     {
-                                        if (res3)
+                                        // Check hash
+                                        if (hash != editDie.die.dataSetHash)
                                         {
-                                            HideProgrammingBox();
-                                            if (hash != editDie.die.dataSetHash)
-                                            {
-                                                ShowDialogBox("Error verifying data sent to " + editDie.name, message);
-                                                callback?.Invoke(false);
-                                            }
-                                            else
-                                            {
-                                                die.currentBehavior = behavior;
-                                                onDieBehaviorUpdatedEvent?.Invoke(die, die.currentBehavior);
-                                                callback?.Invoke(true);
-                                            }
-                                            DicePool.Instance.DisconnectDie(editDie);
+                                            errorTitle = "Error verifying data sent to " + editDie.name;
                                         }
                                         else
                                         {
-                                            HideProgrammingBox();
-                                            ShowDialogBox("Error fetching profile hash value from " + editDie.name, message);
-                                            DicePool.Instance.DisconnectDie(editDie);
-                                            callback?.Invoke(false);
+                                            die.currentBehavior = behavior;
+                                            onDieBehaviorUpdatedEvent?.Invoke(die, die.currentBehavior);
+                                            success = true;
                                         }
-                                    });
+                                    }
+                                    else
+                                    {
+                                        errorTitle = "Error fetching profile hash value from " + editDie.name;
+                                    }
                                 }
                                 else
                                 {
-                                    HideProgrammingBox();
-                                    ShowDialogBox("Error uploading data to " + editDie.name, errorMsg);
-                                    DicePool.Instance.DisconnectDie(editDie);
-                                    callback?.Invoke(false);
+                                    errorTitle = "Error uploading data to " + editDie.name;
                                 }
-                            });
+                            }
+                            else
+                            {
+                                Debug.Log($"Die {editDie.name} already has preset with hash 0x{hash:X8} programmed");
+                                errorTitle = "Profile already Programmed";
+                                error = $"Die {editDie.name} already has profile \"{behavior.name}\" programmed.";
+                                success = true;
+                            }
                         }
                         else
                         {
-                            Debug.Log("Die " + editDie.name + " already has preset with hash 0x" + hash.ToString("X8") + " programmed.");
-                            HideProgrammingBox();
-                            ShowDialogBox("Profile already Programmed", "Die " + editDie.name + " already has profile \"" + behavior.name + "\" programmed.");
-                            DicePool.Instance.DisconnectDie(editDie);
-                            callback?.Invoke(true);
+                            errorTitle = "Error verifying profile hash on " + editDie.name;
                         }
                     }
-                    else
+                    finally
                     {
                         HideProgrammingBox();
-                        ShowDialogBox("Error verifying profile hash on " + editDie.name, message);
                         DicePool.Instance.DisconnectDie(editDie);
-                        callback?.Invoke(false);
                     }
-                });
+
+                    if (error != null)
+                    {
+                        if (!success)
+                        {
+                            Debug.LogError($"Error sending data set {behavior.name} to die {editDie.name}: {errorTitle}, {error}");
+                        }
+
+                        // We may still have a message to show even if the operation was successful
+                        ShowDialogBox(errorTitle, error);
+                    }
+                    callback?.Invoke(success);
+                }
             }
             else
             {
                 HideProgrammingBox();
-                ShowDialogBox("Error connecting to " + editDie.name, message);
+                ShowDialogBox("Error connecting to " + editDie.name, err);
                 callback(false);
             }
         });

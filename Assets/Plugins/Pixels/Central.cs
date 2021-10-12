@@ -89,7 +89,7 @@ namespace Systemic.Pixels.Unity.BluetoothLE
             public bool IsReady;
         }
 
-        public static int RequestTimeout { get; set; } = 5;
+        public const int RequestDefaultTimeout = 10;
 
         // Dictionary key is peripheral SystemId, items are never removed except on shutdown
         static Dictionary<string, PeripheralState> _peripherals = new Dictionary<string, PeripheralState>();
@@ -226,45 +226,45 @@ namespace Systemic.Pixels.Unity.BluetoothLE
         }
 
         //TODO what happens if a connect request is already being processed
-        public static RequestEnumerator ConnectPeripheralAsync(ScannedPeripheral peripheral, Action<ScannedPeripheral, bool> onConnectionEvent)
+        public static RequestEnumerator ConnectPeripheralAsync(ScannedPeripheral peripheral, Action<ScannedPeripheral, bool> onConnectionEvent, float timeoutSec = 0)
         {
+            if (timeoutSec < 0) throw new ArgumentException(nameof(timeoutSec) + " must be greater or equal to zero", nameof(timeoutSec));
+
             EnsureRunningOnMainThread();
 
             PeripheralState ps = GetPeripheralState(peripheral);
 
-            return new RequestEnumerator(Operation.ConnectPeripheral, 0,
+            if (!ps.PeripheralHandle.IsValid)
+            {
+                ps.IsReady = false;
+                ps.PeripheralHandle = NativeInterface.CreatePeripheral(peripheral,
+                    (connectionEvent, reason) => EnqueueAction(ps, () =>
+                    {
+                        Debug.Log($"[BLE:{ps.ScannedPeripheral.Name}] ConnectionEvent => {connectionEvent}{(reason == ConnectionEventReason.Success ? "" : $", reason: { reason}")}");
+                        OnPeripheralConnectionEvent(ps, connectionEvent, reason);
+                    }));
+
+                if (ps.PeripheralHandle.IsValid)
+                {
+                    Debug.Log($"[BLE:{ps.ScannedPeripheral.Name}] Got peripheral");
+                }
+                else
+                {
+                    Debug.LogError($"[BLE:{ps.ScannedPeripheral.Name}] Failed to create peripheral");
+                }
+            }
+
+            return new ConnectRequestEnumerator(ps.PeripheralHandle, timeoutSec,
                 onResult =>
                 {
-                    if (!ps.PeripheralHandle.IsValid)
-                    {
-                        ps.IsReady = false;
-                        ps.PeripheralHandle = NativeInterface.CreatePeripheral(peripheral,
-                            (connectionEvent, reason) => EnqueueAction(ps, () =>
-                            {
-                                Debug.Log($"[BLE:{ps.ScannedPeripheral.Name}] ConnectionEvent => {connectionEvent}{(reason == ConnectionEventReason.Success ? "" : $", reason: { reason}")}");
-                                OnPeripheralConnectionEvent(ps, connectionEvent, reason);
-                            }));
-
-                        if (ps.PeripheralHandle.IsValid)
-                        {
-                            Debug.Log($"[BLE:{ps.ScannedPeripheral.Name}] Created peripheral");
-                        }
-                        else
-                        {
-                            Debug.LogError($"[BLE:{ps.ScannedPeripheral.Name}] Failed to create peripheral");
-                            onResult(new NativeError((int)Error.Unknown));
-                        }
-                    }
-
                     if (ps.PeripheralHandle.IsValid)
                     {
+                        Debug.Log($"[BLE:{ps.ScannedPeripheral.Name}] Connecting with timeout of {timeoutSec}s...");
                         ps.ConnectionEvent = onConnectionEvent;
                         Connect(ps, onResult);
 
                         static void Connect(PeripheralState ps, NativeRequestResultHandler onResult)
                         {
-                            Debug.Log($"[BLE:{ps.ScannedPeripheral.Name}] Connecting...");
-
                             NativeInterface.ConnectPeripheral(
                                 ps.PeripheralHandle,
                                 ps.RequiredServices,
@@ -278,6 +278,7 @@ namespace Systemic.Pixels.Unity.BluetoothLE
                                             || (error.Code == (int)Internal.Android.AndroidRequestStatus.REASON_TIMEOUT)))
                                     {
                                         // Try again
+                                        Debug.Log($"[BLE:{ps.ScannedPeripheral.Name}] Re-connecting...");
                                         Connect(ps, onResult);
                                     }
                                     else
@@ -286,6 +287,10 @@ namespace Systemic.Pixels.Unity.BluetoothLE
                                     }
                                 }));
                         }
+                    }
+                    else
+                    {
+                        onResult(new NativeError((int)Error.Unknown));
                     }
                 });
 
@@ -350,9 +355,7 @@ namespace Systemic.Pixels.Unity.BluetoothLE
             var nativePeripheral = ps.PeripheralHandle;
             ps.PeripheralHandle = new PeripheralHandle();
 
-            return new RequestEnumerator(Operation.DisconnectPeripheral, 0,
-                onResult => NativeInterface.DisconnectPeripheral(nativePeripheral, onResult),
-                postAction: () => NativeInterface.ReleasePeripheral(nativePeripheral)); // Release peripheral no matter what
+            return new DisconnectRequestEnumerator(nativePeripheral);
         }
 
         public static string GetPeripheralName(ScannedPeripheral peripheral)
@@ -371,12 +374,12 @@ namespace Systemic.Pixels.Unity.BluetoothLE
             return NativeInterface.GetPeripheralMtu(nativePeripheral);
         }
 
-        public static ValueRequestEnumerator<int> ReadPeripheralRssi(ScannedPeripheral peripheral)
+        public static ValueRequestEnumerator<int> ReadPeripheralRssi(ScannedPeripheral peripheral, float timeoutSec = RequestDefaultTimeout)
         {
             EnsureRunningOnMainThread();
 
             var nativePeripheral = GetPeripheralState(peripheral).PeripheralHandle;
-            return new ValueRequestEnumerator<int>(Operation.ReadPeripheralRssi, RequestTimeout,
+            return new ValueRequestEnumerator<int>(Operation.ReadPeripheralRssi, timeoutSec,
                 onResult => NativeInterface.ReadPeripheralRssi(nativePeripheral, onResult));
         }
 
@@ -404,67 +407,66 @@ namespace Systemic.Pixels.Unity.BluetoothLE
             return NativeInterface.GetCharacteristicProperties(nativePeripheral, serviceUuid, characteristicUuid, instanceIndex);
         }
 
-        public static RequestEnumerator ReadCharacteristicAsync(ScannedPeripheral peripheral, Guid serviceUuid, Guid characteristicUuid, Action<byte[]> onValueChanged)
+        public static RequestEnumerator ReadCharacteristicAsync(ScannedPeripheral peripheral, Guid serviceUuid, Guid characteristicUuid, Action<byte[]> onValueChanged, float timeoutSec = RequestDefaultTimeout)
         {
-            EnsureRunningOnMainThread();
-
-            return ReadCharacteristicAsync(peripheral, serviceUuid, characteristicUuid, 0, onValueChanged);
+            return ReadCharacteristicAsync(peripheral, serviceUuid, characteristicUuid, 0, onValueChanged, timeoutSec);
         }
 
-        public static RequestEnumerator ReadCharacteristicAsync(ScannedPeripheral peripheral, Guid serviceUuid, Guid characteristicUuid, uint instanceIndex, Action<byte[]> onValueChanged)
+        public static RequestEnumerator ReadCharacteristicAsync(ScannedPeripheral peripheral, Guid serviceUuid, Guid characteristicUuid, uint instanceIndex, Action<byte[]> onValueChanged, float timeoutSec = RequestDefaultTimeout)
         {
             EnsureRunningOnMainThread();
 
             var nativePeripheral = GetPeripheralState(peripheral).PeripheralHandle;
-            return new RequestEnumerator(Operation.ReadCharacteristic, RequestTimeout,
+            return new RequestEnumerator(Operation.ReadCharacteristic, timeoutSec,
                 onResult => NativeInterface.ReadCharacteristic(
                     nativePeripheral, serviceUuid, characteristicUuid, instanceIndex,
                     onValueChanged: GetNativeHandler(onValueChanged, onResult),
                     onResult: onResult));
         }
 
-        public static RequestEnumerator WriteCharacteristicAsync(ScannedPeripheral peripheral, Guid serviceUuid, Guid characteristicUuid, byte[] data, bool withoutResponse = false)
+        public static RequestEnumerator WriteCharacteristicAsync(ScannedPeripheral peripheral, Guid serviceUuid, Guid characteristicUuid, byte[] data, float timeoutSec = RequestDefaultTimeout)
         {
-            EnsureRunningOnMainThread();
-
-            return WriteCharacteristicAsync(peripheral, serviceUuid, characteristicUuid, 0, data, withoutResponse);
+            return WriteCharacteristicAsync(peripheral, serviceUuid, characteristicUuid, 0, data, false, timeoutSec);
         }
 
-        public static RequestEnumerator WriteCharacteristicAsync(ScannedPeripheral peripheral, Guid serviceUuid, Guid characteristicUuid, uint instanceIndex, byte[] data, bool withoutResponse = false)
+        public static RequestEnumerator WriteCharacteristicAsync(ScannedPeripheral peripheral, Guid serviceUuid, Guid characteristicUuid, byte[] data, bool withoutResponse = false, float timeoutSec = RequestDefaultTimeout)
+        {
+            return WriteCharacteristicAsync(peripheral, serviceUuid, characteristicUuid, 0, data, withoutResponse, timeoutSec);
+        }
+
+        public static RequestEnumerator WriteCharacteristicAsync(ScannedPeripheral peripheral, Guid serviceUuid, Guid characteristicUuid, uint instanceIndex, byte[] data, bool withoutResponse = false, float timeoutSec = RequestDefaultTimeout)
         {
             EnsureRunningOnMainThread();
 
             var nativePeripheral = GetPeripheralState(peripheral).PeripheralHandle;
-            return new RequestEnumerator(Operation.WriteCharacteristic, RequestTimeout,
+            return new RequestEnumerator(Operation.WriteCharacteristic, timeoutSec,
                 onResult => NativeInterface.WriteCharacteristic(
                     nativePeripheral, serviceUuid, characteristicUuid, instanceIndex, data, withoutResponse, onResult));
         }
 
-        public static RequestEnumerator SubscribeCharacteristicAsync(ScannedPeripheral peripheral, Guid serviceUuid, Guid characteristicUuid, Action<byte[]> onValueChanged)
+        public static RequestEnumerator SubscribeCharacteristicAsync(ScannedPeripheral peripheral, Guid serviceUuid, Guid characteristicUuid, Action<byte[]> onValueChanged, float timeoutSec = RequestDefaultTimeout)
         {
-            EnsureRunningOnMainThread();
-
-            return SubscribeCharacteristicAsync(peripheral, serviceUuid, characteristicUuid, 0, onValueChanged);
+            return SubscribeCharacteristicAsync(peripheral, serviceUuid, characteristicUuid, 0, onValueChanged, timeoutSec);
         }
 
-        public static RequestEnumerator SubscribeCharacteristicAsync(ScannedPeripheral peripheral, Guid serviceUuid, Guid characteristicUuid, uint instanceIndex, Action<byte[]> onValueChanged)
+        public static RequestEnumerator SubscribeCharacteristicAsync(ScannedPeripheral peripheral, Guid serviceUuid, Guid characteristicUuid, uint instanceIndex, Action<byte[]> onValueChanged, float timeoutSec = RequestDefaultTimeout)
         {
             EnsureRunningOnMainThread();
 
             var nativePeripheral = GetPeripheralState(peripheral).PeripheralHandle;
-            return new RequestEnumerator(Operation.SubscribeCharacteristic, RequestTimeout,
+            return new RequestEnumerator(Operation.SubscribeCharacteristic, timeoutSec,
                 onResult => NativeInterface.SubscribeCharacteristic(
                     nativePeripheral, serviceUuid, characteristicUuid, instanceIndex,
                     onValueChanged: GetNativeHandler(onValueChanged, onResult),
                     onResult: onResult));
         }
 
-        public static RequestEnumerator UnsubscribeCharacteristicAsync(ScannedPeripheral peripheral, Guid serviceUuid, Guid characteristicUuid, uint instanceIndex = 0)
+        public static RequestEnumerator UnsubscribeCharacteristicAsync(ScannedPeripheral peripheral, Guid serviceUuid, Guid characteristicUuid, uint instanceIndex = 0, float timeoutSec = RequestDefaultTimeout)
         {
             EnsureRunningOnMainThread();
 
             var nativePeripheral = GetPeripheralState(peripheral).PeripheralHandle;
-            return new RequestEnumerator(Operation.UnsubscribeCharacteristic, RequestTimeout,
+            return new RequestEnumerator(Operation.UnsubscribeCharacteristic, timeoutSec,
                 onResult => NativeInterface.UnsubscribeCharacteristic(
                     nativePeripheral, serviceUuid, characteristicUuid, instanceIndex, onResult));
         }

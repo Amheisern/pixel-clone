@@ -115,7 +115,7 @@ public class UIPairedDieToken : MonoBehaviour
         if (die.die != null && die.die.connectionState == DieConnectionState.Ready)
         {
             var newName = Names.GetRandomName();
-            die.die.RenameDie(newName, res =>
+            die.die.RenameDieAsync(newName, (res, _) =>
             {
                 if (res)
                 {
@@ -144,15 +144,21 @@ public class UIPairedDieToken : MonoBehaviour
         {
             PixelsApp.Instance.ShowEnumPicker("Select Design", die.designAndColor, (res, newDesign) =>
             {
-                die.designAndColor = (Dice.DieDesignAndColor)newDesign;
-                die.die.SetCurrentDesignAndColor((Dice.DieDesignAndColor)newDesign, (res2) =>
+                StartCoroutine(SetDesignCr());
+                
+                IEnumerator SetDesignCr()
                 {
-                    if (res2)
+                    var designAndColor = (DieDesignAndColor)newDesign;
+                    bool success = false;
+                    yield return die.die.SetCurrentDesignAndColorAsync(designAndColor, (res, _) => success = res);
+
+                    if (success)
                     {
+                        die.designAndColor = designAndColor;
                         AppDataSet.Instance.SaveData();
                         dieView.UpdateState();
                     }
-                });
+                }
             },
             null);
         }
@@ -163,7 +169,7 @@ public class UIPairedDieToken : MonoBehaviour
         OnToggle();
         if (die.die != null && die.die.connectionState == DieConnectionState.Ready)
         {
-            die.die.Flash(Color.yellow, 3, null);
+            die.die.BlinkAsync(Color.yellow, 3, null);
         }
     }
 
@@ -183,19 +189,11 @@ public class UIPairedDieToken : MonoBehaviour
             // Die might be destroyed (-> null) or change state at any time
             while (die.die?.connectionState == DieConnectionState.Ready)
             {
-                float timeout;
-
                 // Fetch battery level
-                bool battLevelReceived = false;
-                timeout = Time.realtimeSinceStartup + Die.AckMessageTimeout + 1;
-                die.die.GetBatteryLevel((d, f) => battLevelReceived = true); // Callback is never called when die is destroyed
-                yield return new WaitUntil(() => battLevelReceived || (Time.realtimeSinceStartup > timeout));
+                yield return die.die?.UpdateBatteryLevelAsync();
 
                 // Fetch RSSI
-                bool rssiReceived = false;
-                timeout = Time.realtimeSinceStartup + Die.AckMessageTimeout + 1;
-                die.die.GetRssi((d, i) => rssiReceived = true); // Callback is never called when die is destroyed
-                yield return new WaitUntil(() => rssiReceived || (Time.realtimeSinceStartup > timeout));
+                yield return die.die?.UpdateRssiAsync();
 
                 yield return new WaitForSeconds(3.0f);
             }

@@ -4,6 +4,9 @@ using UnityEngine;
 
 namespace Dice
 {
+    public delegate void DieOperationResultHandler<T>(T result, string error);
+    public delegate void DieOperationProgressHandler(float progress); // Value between 0 and 1
+
     partial class Die
     {
         public const float AckMessageTimeout = 5;
@@ -44,74 +47,9 @@ namespace Dice
         {
             EnsureRunningOnMainThread();
 
-            Debug.Log($"Posting message of type {message.GetType()}");
+            Debug.Log($"Die {name}: posting message of type {message.GetType()}");
 
-            WriteData(DieMessages.ToByteArray(message), null);
-        }
-
-        IEnumerator WaitForMessageCr(DieMessageType msgType, System.Action<IDieMessage> msgReceivedCallback)
-        {
-            bool msgReceived = false;
-            IDieMessage msg = default;
-            void callback(IDieMessage ackMsg)
-            {
-                msgReceived = true;
-                msg = ackMsg;
-            }
-
-            AddMessageHandler(msgType, callback);
-            yield return new WaitUntil(() => msgReceived);
-            RemoveMessageHandler(msgType, callback);
-            if (msgReceivedCallback != null)
-            {
-                msgReceivedCallback.Invoke(msg);
-            }
-        }
-
-        IEnumerator SendMessageWithAckOrTimeoutCr<T>(T message, DieMessageType ackType, System.Action<IDieMessage> ackAction, System.Action timeoutAction)
-            where T : IDieMessage
-        {
-            Debug.Log($"Sending message of type {typeof(T)} with ACK of type {message.GetType()}");
-
-            IDieMessage ackMessage = null;
-            float timeout = Time.realtimeSinceStartup + AckMessageTimeout;
-            void callback(IDieMessage ackMsg) => ackMessage = ackMsg;
-
-            AddMessageHandler(ackType, callback);
-            WriteData(DieMessages.ToByteArray(message), null);
-            while (ackMessage == null && Time.realtimeSinceStartup < timeout)
-            {
-                yield return null;
-            }
-            RemoveMessageHandler(ackType, callback);
-
-            if (ackMessage != null)
-            {
-                ackAction?.Invoke(ackMessage);
-            }
-            else
-            {
-                Debug.LogError($"Timeout on sending message of type {message.GetType()}");
-                timeoutAction?.Invoke();
-            }
-        }
-
-        IEnumerator SendMessageWithAckRetryCr<T>(T message, DieMessageType ackType, int retryCount, System.Action<IDieMessage> ackAction, System.Action timeoutAction)
-            where T : IDieMessage
-        {
-            bool msgReceived = false;
-            void msgAction(IDieMessage msg)
-            {
-                msgReceived = true;
-                ackAction?.Invoke(msg);
-            }
-
-            while ((!msgReceived) && (retryCount >= 0))
-            {
-                // Retry every half second if necessary
-                yield return StartCoroutine(SendMessageWithAckOrTimeoutCr(message, ackType, msgAction, timeoutAction));
-                --retryCount;
-            }
+            StartCoroutine(WriteDataAsync(DieMessages.ToByteArray(message)));
         }
 
         #endregion
@@ -145,38 +83,32 @@ namespace Dice
             PostMessage(new DieMessageAttractMode());
         }
 
-        public Coroutine GetDieState(System.Action<bool> callback)
+        public IEnumerator GetDieState(DieOperationResultHandler<bool> onResult = null)
         {
-            var whoAreYouMsg = new DieMessageRequestState();
-            return StartCoroutine(SendMessageWithAckOrTimeoutCr(
-                whoAreYouMsg,
-                DieMessageType.State,
-                _ => callback?.Invoke(true),
-                () => callback?.Invoke(false)));
+            var op = new SendMessageAndWaitForResponseEnumerator<DieMessageRequestState, DieMessageState>(this);
+            yield return op;
+            onResult?.Invoke(op.IsSuccess, op.Error);
         }
 
-        public Coroutine GetDieInfo(System.Action<bool> callback)
+        public IEnumerator GetDieInfoAsync(DieOperationResultHandler<bool> onResult = null)
         {
-            return StartCoroutine(SendMessageWithAckOrTimeoutCr(
-                new DieMessageWhoAreYou(),
-                DieMessageType.IAmADie,
-                msg =>
+            var op = new SendMessageAndProcessResponseEnumerator<DieMessageWhoAreYou, DieMessageIAmADie>(this,
+                idMsg =>
                 {
-                    var idMsg = (DieMessageIAmADie)msg;
                     bool appearanceChanged = faceCount != idMsg.faceCount || designAndColor != idMsg.designAndColor;
                     faceCount = idMsg.faceCount;
                     designAndColor = idMsg.designAndColor;
                     dataSetHash = idMsg.dataSetHash;
                     flashSize = idMsg.flashSize;
                     firmwareVersionId = idMsg.versionInfo;
-                    Debug.Log($"Die {name} has {flashSize} bytes available for data, current dataset hash {dataSetHash:X08}, firmware version is {firmwareVersionId}");
+                    Debug.Log($"Die {name}: {flashSize} bytes available for data, current dataset hash {dataSetHash:X08}, firmware version is {firmwareVersionId}");
                     if (appearanceChanged)
                     {
                         AppearanceChanged?.Invoke(this, faceCount, designAndColor);
                     }
-                    callback?.Invoke(true);
-                },
-                () => callback?.Invoke(false)));
+                });
+            yield return op;
+            onResult?.Invoke(op.IsSuccess, op.Error);
         }
 
         public void RequestTelemetry(bool on)
@@ -213,67 +145,60 @@ namespace Dice
             });
         }
 
-        public Coroutine GetBatteryLevel(System.Action<Die, float?> outLevelAction)
+        public IEnumerator UpdateBatteryLevelAsync(DieOperationResultHandler<bool> onResult = null)
         {
-            return StartCoroutine(SendMessageWithAckOrTimeoutCr(
-                new DieMessageRequestBatteryLevel(),
-                DieMessageType.BatteryLevel,
-                msg =>
+            var op = new SendMessageAndProcessResponseWithValue<DieMessageRequestBatteryLevel, DieMessageBatteryLevel, float>(this,
+                lvlMsg =>
                 {
-                    var lvlMsg = (DieMessageBatteryLevel)msg;
                     batteryLevel = lvlMsg.level;
                     charging = lvlMsg.charging != 0;
                     BatteryLevelChanged?.Invoke(this, lvlMsg.level, lvlMsg.charging != 0);
-                    outLevelAction?.Invoke(this, lvlMsg.level);
-                },
-                () => outLevelAction?.Invoke(this, null)));
+                    return lvlMsg.level;
+                });
+            yield return op;
+            onResult?.Invoke(op.IsSuccess, op.Error);
         }
 
-        public Coroutine GetRssi(System.Action<Die, int?> outRssiAction)
+        public IEnumerator UpdateRssiAsync(DieOperationResultHandler<bool> onResult = null)
         {
-            return StartCoroutine(SendMessageWithAckOrTimeoutCr(
-                new DieMessageRequestRssi(),
-                DieMessageType.Rssi,
-                msg =>
+            var op = new SendMessageAndProcessResponseWithValue<DieMessageRequestRssi, DieMessageRssi, int>(this,
+                rssiMsg =>
                 {
-                    var rssiMsg = (DieMessageRssi)msg;
                     rssi = rssiMsg.rssi;
                     RssiChanged?.Invoke(this, rssiMsg.rssi);
-                    outRssiAction?.Invoke(this, rssiMsg.rssi);
-                },
-                () => outRssiAction?.Invoke(this, null)));
+                    return rssiMsg.rssi;
+                });
+            yield return op;
+            onResult?.Invoke(op.IsSuccess, op.Error);
         }
 
-        public Coroutine SetCurrentDesignAndColor(DieDesignAndColor design, System.Action<bool> callback)
+        public IEnumerator SetCurrentDesignAndColorAsync(DieDesignAndColor design, DieOperationResultHandler<bool> onResult = null)
         {
-            return StartCoroutine(SendMessageWithAckOrTimeoutCr(
+            var op = new SendMessageAndProcessResponseEnumerator<DieMessageSetDesignAndColor, DieMessageRssi>(this,
                 new DieMessageSetDesignAndColor() { designAndColor = design },
-                DieMessageType.SetDesignAndColorAck,
                 _ =>
                 {
                     designAndColor = design;
                     AppearanceChanged?.Invoke(this, faceCount, designAndColor);
-                    callback?.Invoke(true);
-                },
-                () => callback?.Invoke(false)));
+                });
+            yield return op;
+            onResult?.Invoke(op.IsSuccess, op.Error);
         }
 
-        public Coroutine RenameDie(string newName, System.Action<bool> callback)
+        public IEnumerator RenameDieAsync(string newName, DieOperationResultHandler<bool> onResult = null)
         {
-            Debug.Log("Renaming to " + newName);
+            Debug.Log($"Die {name}: renaming to " + newName);
 
             byte[] nameBytes = System.Text.Encoding.UTF8.GetBytes(newName + "\0");
             byte[] nameByte10 = new byte[10]; // 10 is the declared size in DieMessageSetName. There is probably a better way to do this...
             System.Array.Copy(nameBytes, nameByte10, nameBytes.Length);
 
-            return StartCoroutine(SendMessageWithAckOrTimeoutCr(
-                new DieMessageSetName { name = nameByte10 },
-                DieMessageType.SetNameAck,
-                _ => callback?.Invoke(true),
-                () => callback?.Invoke(false)));
+            var op = new SendMessageAndWaitForResponseEnumerator<DieMessageSetName, DieMessageSetNameAck>(this, new DieMessageSetName { name = nameByte10 });
+            yield return op;
+            onResult?.Invoke(op.IsSuccess, op.Error);
         }
 
-        public Coroutine Flash(Color color, int count, System.Action<bool> callback)
+        public IEnumerator BlinkAsync(Color color, int count, DieOperationResultHandler<bool> onResult = null)
         {
             Color32 color32 = color;
             var msg = new DieMessageFlash
@@ -281,11 +206,9 @@ namespace Dice
                 color = (uint)((color32.r << 16) + (color32.g << 8) + color32.b),
                 flashCount = (byte)count,
             };
-            return StartCoroutine(SendMessageWithAckOrTimeoutCr(
-                msg,
-                DieMessageType.FlashFinished,
-                _ => callback?.Invoke(true),
-                () => callback?.Invoke(false)));
+            var op = new SendMessageAndWaitForResponseEnumerator<DieMessageFlash, DieMessageFlashFinished>(this, msg);
+            yield return op;
+            onResult?.Invoke(op.IsSuccess, op.Error);
         }
 
         public void StartHardwareTest()
@@ -323,18 +246,13 @@ namespace Dice
             PostMessage(new DieMessageDebugAnimController());
         }
 
-        public Coroutine PrintNormals()
+        public IEnumerator PrintNormalsAsync()
         {
-            return StartCoroutine(PrintNormalsCr());
-
-            IEnumerator PrintNormalsCr()
+            for (int i = 0; i < 20; ++i)
             {
-                for (int i = 0; i < 20; ++i)
-                {
-                    var msg = new DieMessagePrintNormals { face = (byte)i };
-                    PostMessage(msg);
-                    yield return new WaitForSeconds(0.5f);
-                }
+                var msg = new DieMessagePrintNormals { face = (byte)i };
+                PostMessage(msg);
+                yield return new WaitForSeconds(0.5f);
             }
         }
 
@@ -349,7 +267,7 @@ namespace Dice
         {
             // Handle the message
             var stateMsg = (DieMessageState)message;
-            Debug.Log($"State: {stateMsg.state}, {stateMsg.face}");
+            Debug.Log($"Die {name}: state is {stateMsg.state}, {stateMsg.face}");
 
             var newState = (DieRollState)stateMsg.state;
             var newFace = stateMsg.face;
@@ -379,7 +297,7 @@ namespace Dice
         {
             var dlm = (DieMessageDebugLog)message;
             string text = System.Text.Encoding.UTF8.GetString(dlm.data, 0, dlm.data.Length);
-            Debug.Log(name + ": " + text);
+            Debug.Log($"Die {name}: {text}");
         }
 
         void OnNotifyUserMessage(IDieMessage message)

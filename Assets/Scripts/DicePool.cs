@@ -107,17 +107,17 @@ public sealed partial class DicePool : SingletonMonoBehaviour<DicePool>
         if (editDie != null)
         {
             SetDieForEditDie(editDie, poolDie);
-            Debug.Log($"Pairing discovered die: {poolDie.SystemId} - {poolDie.name}");
+            Debug.Log($"Pairing discovered Die: {poolDie.SystemId} - {poolDie.name}");
         }
         else
         {
-            Debug.Log($"Discovered die is unpaired: {poolDie.SystemId} - {poolDie.name}");
+            Debug.Log($"Discovered Die is unpaired: {poolDie.SystemId} - {poolDie.name}");
         }
 
         if (poolDie.connectionState != DieConnectionState.Available)
         {
             // All other are errors
-            Debug.LogError($"Discovered die {poolDie.name} in invalid state: {poolDie.connectionState}");
+            Debug.LogError($"Discovered Die {poolDie.name} in invalid state: {poolDie.connectionState}");
             //TODO poolDie.SetConnectionState(DieConnectionState.Available);
         }
 
@@ -155,9 +155,6 @@ public sealed partial class DicePool : SingletonMonoBehaviour<DicePool>
         IEnumerator AddDiscoveredDiceCr()
         {
             PixelsApp.Instance.ShowProgrammingBox("Adding Dice to the Dice Bag");
-
-            //while (state != State.Idle) yield return null;
-            //state = State.AddingDiscoveredDie;
 
             for (int i = 0; i < discoveredDice.Count; ++i)
             {
@@ -199,56 +196,17 @@ public sealed partial class DicePool : SingletonMonoBehaviour<DicePool>
                 {
                     Debug.LogError($"Die {poolDie.name} doesn't have a system id");
                 }
-                /*{
-                    bool? res = null;
-                    poolDie.Connect((d, r, s) => res = r);
-                    yield return new WaitUntil(() => res.HasValue);
-
-                    if (res.Value)
-                    {
-                        if (poolDie.deviceId == 0)
-                        {
-                            string errorMessage = $"Die {poolDie.name} was connected to but doesn't have a proper device id.";
-                            Debug.LogError(errorMessage);
-                            bool acknowledge = false;
-                            PixelsApp.Instance.ShowDialogBox("Identification Error", errorMessage, "Ok", null, (_) => acknowledge = true);
-                            yield return new WaitUntil(() => acknowledge);
-                        }
-                        else
-                        {
-                            var editDie = AddNewDie();
-
-                            // Fetch battery level
-                            bool battLevelReceived = false;
-                            editDie.die.GetBatteryLevel((d, f) => battLevelReceived = true);
-
-                            // Fetch RSSI
-                            bool rssiReceived = false;
-                            editDie.die.GetRssi((d, r) => rssiReceived = true);
-
-                            yield return new WaitUntil(() => rssiReceived && battLevelReceived);
-                        }
-
-                        // We're done
-                        poolDie.Disconnect();
-                    }
-                    else
-                    {
-                        bool acknowledge = false;
-                        PixelsApp.Instance.ShowDialogBox("Connection error", $"Could not connect to {poolDie.name} to add it to the dice bag.", "Ok", null, (_) => acknowledge = true);
-                        yield return new WaitUntil(() => acknowledge);
-                    }
-                }*/
             }
             PixelsApp.Instance.HideProgrammingBox();
-            //state = State.Idle;
         }
     }
 
     public Coroutine ConnectDice(IEnumerable<EditDie> diceList, System.Func<bool> requestCancelFunc, System.Action<EditDie, bool, string> dieReadyCallback = null)
     {
-        var dice = diceList.ToArray();
+        if (diceList == null) throw new System.ArgumentNullException(nameof(diceList));
+        if (requestCancelFunc == null) throw new System.ArgumentNullException(nameof(requestCancelFunc));
 
+         var dice = diceList.ToArray();
         if (!dice.All(d => _editDice.ContainsKey(d)))
         {
             Debug.LogError("some dice not valid");
@@ -260,12 +218,9 @@ public sealed partial class DicePool : SingletonMonoBehaviour<DicePool>
 
             IEnumerator ConnectDiceListCr()
             {
-                //while (state != State.Idle) yield return null;
-                //state = State.ConnectingDie;
-
                 // requestCancelFunc() only need to return true once to cancel the operation
                 bool isCancelled = false;
-                bool UpdateIsCancelled() => isCancelled |= requestCancelFunc();
+                bool UpdateIsCancelledOrTimeout() => isCancelled |= requestCancelFunc();
 
                 if (dice.Any(ed => ed.die == null))
                 {
@@ -274,8 +229,8 @@ public sealed partial class DicePool : SingletonMonoBehaviour<DicePool>
                     Debug.Log("Scanning timeout: " + AppConstants.Instance.ScanTimeout);
 
                     // Wait for all dice to be scanned, or timeout
-                    float timeout = Time.realtimeSinceStartup + AppConstants.Instance.ScanTimeout;
-                    yield return new WaitUntil(() => dice.All(ed => ed.die != null) || (Time.realtimeSinceStartup > timeout) || UpdateIsCancelled());
+                    float scanTimeout = Time.realtimeSinceStartup + AppConstants.Instance.ScanTimeout;
+                    yield return new WaitUntil(() => dice.All(ed => ed.die != null) || (Time.realtimeSinceStartup > scanTimeout) || UpdateIsCancelledOrTimeout());
 
                     StopScanForDice();
                 }
@@ -294,7 +249,7 @@ public sealed partial class DicePool : SingletonMonoBehaviour<DicePool>
 
                         // We found the die, try to connect
                         int index = i; // Capture the current value of i
-                        poolDie.Connect((d, r, s) => results[index] = r ? "" : "Could not connect to Die");
+                        poolDie.Connect((_, res, error) => results[index] = res ? "" : error);
                     }
                     else
                     {
@@ -303,7 +258,7 @@ public sealed partial class DicePool : SingletonMonoBehaviour<DicePool>
                 }
 
                 // Wait for all dice to connect
-                yield return new WaitUntil(() => results.All(msg => msg != null) || UpdateIsCancelled());
+                yield return new WaitUntil(() => results.All(msg => msg != null) || UpdateIsCancelledOrTimeout());
 
                 if (isCancelled)
                 {
@@ -315,6 +270,7 @@ public sealed partial class DicePool : SingletonMonoBehaviour<DicePool>
                             var poolDie = (PoolDie)dice[i].die;
                             poolDie?.Disconnect();
                         }
+                        dieReadyCallback?.Invoke(dice[i], false, "Connection to Die canceled by application");
                     }
                 }
                 else if (dieReadyCallback != null)
@@ -323,7 +279,7 @@ public sealed partial class DicePool : SingletonMonoBehaviour<DicePool>
                     for (int i = 0; i < dice.Length; ++i)
                     {
                         bool connected = results[i] == "";
-                        dieReadyCallback.Invoke(dice[i], connected, connected ? null : $"{results[i]} {dice[i].name}");
+                        dieReadyCallback.Invoke(dice[i], connected, connected ? null : results[i]);
                     }
                 }
             }

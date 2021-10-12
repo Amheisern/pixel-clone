@@ -72,6 +72,7 @@ namespace Systemic.Pixels.Unity.BluetoothLE
         Unreachable = 4,
         NotSupported = 0xCCCCCC,
         Unknown = 0xDDDDDD,
+        Timeout = 0xEEEEEE,
     }
 
     public enum RequestStatus
@@ -100,7 +101,7 @@ namespace Systemic.Pixels.Unity.BluetoothLE
 
         public string Message { get; }
 
-        public NativeError(int code, string message = null) => (Code, Message) = (code, message);
+        public NativeError(int code, string message = null) => (Code, Message) = (code, code == 0 ? null : (message ?? "Error"));
 
         public override string ToString() => $"({Code}, '{Message}')";
 

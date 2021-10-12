@@ -1,10 +1,6 @@
 ﻿using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
-using System.Runtime.InteropServices;
-
-using Central = Systemic.Pixels.Unity.BluetoothLE.Central;
-using Peripheral = Systemic.Pixels.Unity.BluetoothLE.ScannedPeripheral;
 
 namespace Dice
 {
@@ -65,7 +61,7 @@ namespace Dice
                 Debug.Assert(System.Threading.Thread.CurrentThread.ManagedThreadId == 1);
                 if (value != _connectionState)
                 {
-                    Debug.Log($"Die {name} connection state change: {_connectionState} => {value}");
+                    Debug.Log($"Die {name}: connection state change, {_connectionState} => {value}");
                     var oldState = _connectionState;
                     _connectionState = value;
                     ConnectionStateChanged?.Invoke(this, oldState, value);
@@ -165,7 +161,7 @@ namespace Dice
             messageDelegates.Add(DieMessageType.PlaySound, OnPlayAudioClip);
         }
 
-        protected abstract void WriteData(byte[] bytes, System.Action<Die, bool, string> onWriteResult);
+        protected abstract IOperationEnumerator WriteDataAsync(byte[] bytes, float timeout = 0);
 
         protected void EnsureRunningOnMainThread()
         {

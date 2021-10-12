@@ -2,9 +2,7 @@
 using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.UI;
-using Presets;
 using Dice;
-using System.Linq;
 
 public class UIPatternView
     : UIPage
@@ -180,16 +178,31 @@ public class UIPatternView
             if (previewDie != null && previewDieConnected)
             {
                 previewDie.die.SetLEDAnimatorMode();
-                yield return new WaitForSeconds(0.5f); // Fixme!!! add acknowledge from die instead
+                yield return new WaitForSeconds(0.5f); //TODO add acknowledge from die instead
 
-                var editSet = AppDataSet.Instance.ExtractEditSetForAnimation(editAnimation);
-                var dataSet = editSet.ToDataSet();
-                bool playResult = false;
-                yield return previewDie.die.PlayTestAnimation(dataSet, (res) => playResult = res);
-                if (!playResult)
+                PixelsApp.Instance.ShowProgrammingBox("Uploading animation to " + name);
+
+                string error = null;
+                try
+                {
+                    bool success = false;
+                    var editSet = AppDataSet.Instance.ExtractEditSetForAnimation(editAnimation);
+                    StartCoroutine(previewDie.die.PlayTestAnimationAsync(
+                        editSet.ToDataSet(),
+                        (res, err) => (success, error) = (res, err),
+                        progress => PixelsApp.Instance.UpdateProgrammingBox(progress)));
+
+                    yield return new WaitUntil(() => success || (error != null));
+                }
+                finally
+                {
+                    PixelsApp.Instance.HideProgrammingBox();
+                }
+
+                if (error != null)
                 {
                     bool acknowledged = false;
-                    PixelsApp.Instance.ShowDialogBox("Transfer Error", "Could not play animation on " + previewDie.name + ", Transfer error", "Ok", null, _ => acknowledged = true);
+                    PixelsApp.Instance.ShowDialogBox($"Transfer Error", $"Could not play animation on {previewDie.name}: transfer error", "Ok", null, _ => acknowledged = true);
                     previewDie = null;
                     yield return new WaitUntil(() => acknowledged);
                 }
