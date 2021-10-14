@@ -154,6 +154,7 @@ namespace Dice
             messageDelegates = new Dictionary<DieMessageType, MessageReceivedDelegate>();
 
             // Setup delegates for face and telemetry
+            messageDelegates.Add(DieMessageType.IAmADie, OnIAmADieMessage);
             messageDelegates.Add(DieMessageType.State, OnStateMessage);
             messageDelegates.Add(DieMessageType.Telemetry, OnTelemetryMessage);
             messageDelegates.Add(DieMessageType.DebugLog, OnDebugLogMessage);

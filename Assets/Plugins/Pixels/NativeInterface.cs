@@ -5,89 +5,83 @@ using Systemic.Pixels.Unity.BluetoothLE.Internal;
 
 namespace Systemic.Pixels.Unity.BluetoothLE
 {
+    public enum BluetoothStatus
+    {
+        Disabled,
+        Enabled,
+    }
+
+    // Must match C++ enum Pixels::CoreBluetoothLE::ConnectionEvent
     public enum ConnectionEvent
     {
-        /**
-         * Called when the Android device started connecting to given device.
-         * The {@link #onDeviceConnected(BluetoothDevice)} will be called when the device is connected,
-         * or {@link #onDeviceFailedToConnect(BluetoothDevice, int)} if connection will fail.
-         *
-         * @param device the device that got connected.
-         */
+        // Raised at the beginning of the connect sequence, will be followed either by Connected or FailedToConnect
         Connecting,
 
-        /**
-         * Called when the device has been connected. This does not mean that the application may start
-         * communication. Service discovery will be handled automatically after this call.
-         *
-         * @param device the device that got connected.
-         */
+        // Raised once the peripheral is connected, at which point service discovery is triggered
         Connected,
 
-        /**
-         * Called when the device failed to connect.
-         * @param device the device that failed to connect.
-         * @param reason the reason of failure.
-         */
-        FailedToConnect, // + reason
+        // Raised when the peripheral fails to connect, the reason of failure is also given
+        FailedToConnect,
 
-        /**
-         * Method called when all initialization requests has been completed.
-         *
-         * @param device the device that get ready.
-         */
+        // Raised after a Connected event, once the required services have been discovered
         Ready,
 
-        /**
-         * Called when user initialized disconnection.
-         *
-         * @param device the device that gets disconnecting.
-         */
+        // Raised at the beginning of a user initiated disconnect
         Disconnecting,
 
-        /**
-         * Called when the device has disconnected (when the callback returned
-         * {@link BluetoothGattCallback#onConnectionStateChange(BluetoothGatt, int, int)} with state
-         * DISCONNECTED).
-         *
-         * @param device the device that got disconnected.
-         * @param reason of the disconnect (mapped from the status code reported by the GATT
-         *               callback to the library specific status codes).
-         */
-        Disconnected, // + reason
+        // Raised when the peripheral is disconnected, the reason for the connection loss is also given
+        Disconnected,
     }
 
-    // See https://github.com/NordicSemiconductor/Android-BLE-Library/blob/1c8339013e678a864302209618435de5707207dd/ble/src/main/java/no/nordicsemi/android/ble/observer/ConnectionObserver.java
+    // Must match C++ enum Pixels::CoreBluetoothLE::ConnectionEventReason
     public enum ConnectionEventReason
     {
+        // The disconnect happened for an unknown reason
         Unknown = -1,
-        /** The disconnection was initiated by the user. */
+
+        // The disconnect was initiated by user
         Success = 0,
-        /** The local device initiated disconnection. */
-        REASON_TERMINATE_LOCAL_HOST = 1,
-        /** The remote device initiated graceful disconnection. */
-        REASON_TERMINATE_PEER_USER = 2,
-        /**
-		 * This reason will only be reported when {@link ConnectRequest#useAutoConnect(boolean)}} was
-		 * called with parameter set to true, and connection to the device was lost for any reason
-		 * other than graceful disconnection initiated by the peer user.
-		 * <p>
-		 * Android will try to reconnect automatically.
-		 */
-        Unreachable = 3, // LinkLoss
-        /** The device does not have required services. */
-        NotSupported = 4,
-        /** Connection attempt was canceled. */
-        Cancelled = 5,
+
+        // Connection attempt canceled by user
+        Canceled,
+
+        // Peripheral does not have all required services
+        NotSupported,
+
+        // Peripheral didn't responded in time
+        Timeout,
+
+        // Peripheral was disconnected while in "auto connect" mode
+        LinkLoss,
+
+        // The local device Bluetooth adapter is off
+        AdpaterOff,
+
+        // Disconnection was initiated by peripheral
+        Peripheral,
+    }
+
+    // Must match C++ enum Pixels::CoreBluetoothLE::BleRequestStatus
+    public enum RequestStatus
+    {
+        Success,
+        Error, // Generic error
+        InProgress,
+        Canceled,
+        InvalidCall,
+        InvalidParameters,
+        NotSupported,
         ProtocolError,
         AccessDenied,
-
-        /**
-		 * The connection timed out. The device might have reboot, is out of range, turned off
-		 * or doesn't respond for another reason.
-		 */
-        REASON_TIMEOUT = 10,
+        Timeout,
     }
+
+    public delegate void NativeBluetoothEventHandler(BluetoothStatus status);
+    public delegate void NativePeripheralConnectionEventHandler(ConnectionEvent connectionEvent, ConnectionEventReason reason);
+    public delegate void NativePeripheralCreatedHandler(PeripheralHandle peripheralHandle);
+    public delegate void NativeRequestResultHandler(RequestStatus status);
+    public delegate void NativeValueRequestResultHandler<T>(T value, RequestStatus status);
+    public delegate void NativeValueChangedHandler(byte[] data, RequestStatus status);
 
     [Flags]
     public enum CharacteristicProperties : ulong
@@ -103,13 +97,6 @@ namespace Systemic.Pixels.Unity.BluetoothLE
         NotifyEncryptionRequired = 0x100,
         IndicateEncryptionRequired = 0x200,
     }
-
-    public delegate void NativeBluetoothEventHandler(bool available); //TODO use enum for states
-    public delegate void NativePeripheralConnectionEventHandler(ConnectionEvent connectionEvent, ConnectionEventReason reason);
-    public delegate void NativePeripheralCreatedHandler(PeripheralHandle peripheralHandle);
-    public delegate void NativeRequestResultHandler(NativeError error); // On success error is empty
-    public delegate void NativeValueRequestResultHandler<T>(T value, NativeError error); // On success error is empty
-    public delegate void NativeValueChangedHandler(byte[] data, NativeError error); // No error if data != null
 
     public class NativeInterface
     {

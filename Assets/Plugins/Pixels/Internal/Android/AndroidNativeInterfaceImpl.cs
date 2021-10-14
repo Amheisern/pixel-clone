@@ -4,20 +4,20 @@ using UnityEngine.Android;
 
 namespace Systemic.Pixels.Unity.BluetoothLE.Internal.Android
 {
-    enum AndroidRequestStatus : int
+    public enum AndroidRequestStatus : int
     {
         // From android.bluetooth.BluetoothGatt 
-        GATT_SUCCESS = 0, // A GATT operation completed successfully
-        GATT_READ_NOT_PERMITTED = 2, // GATT read operation is not permitted
-        GATT_WRITE_NOT_PERMITTED = 3, // GATT write operation is not permitted
-        GATT_INSUFFICIENT_AUTHENTICATION = 5, // Insufficient authentication for a given operation
-        GATT_REQUEST_NOT_SUPPORTED = 6, // The given request is not supported
-        GATT_INVALID_OFFSET = 7, // A read or write operation was requested with an invalid offset
+        GATT_SUCCESS = 0,                   // A GATT operation completed successfully
+        GATT_READ_NOT_PERMITTED = 2,        // GATT read operation is not permitted
+        GATT_WRITE_NOT_PERMITTED = 3,       // GATT write operation is not permitted
+        GATT_INSUFFICIENT_AUTHENTICATION =5,// Insufficient authentication for a given operation
+        GATT_REQUEST_NOT_SUPPORTED = 6,     // The given request is not supported
+        GATT_INVALID_OFFSET = 7,            // A read or write operation was requested with an invalid offset
         GATT_INVALID_ATTRIBUTE_LENGTH = 13, //  A write operation exceeds the maximum length of the attribute
-        GATT_INSUFFICIENT_ENCRYPTION = 15, // Insufficient encryption for a given operation
-        GATT_ERROR = 133, // (0x85) Generic error
-        GATT_CONNECTION_CONGESTED = 143, // (0x8f) A remote device connection is congested.
-        GATT_FAILURE = 257, // (0x101) A GATT operation failed, errors other than the above
+        GATT_INSUFFICIENT_ENCRYPTION = 15,  // Insufficient encryption for a given operation
+        GATT_ERROR = 133,                   // (0x85) Generic error
+        GATT_CONNECTION_CONGESTED = 143,    // (0x8f) A remote device connection is congested.
+        GATT_FAILURE = 257,                 // (0x101) A GATT operation failed, errors other than the above
 
         // From Nordic's FailCallback
         REASON_DEVICE_DISCONNECTED = -1,
@@ -31,6 +31,20 @@ namespace Systemic.Pixels.Unity.BluetoothLE.Internal.Android
 
         // From Nordic's RequestCallback
         REASON_REQUEST_INVALID = -1000000,
+    }
+
+    public enum AndroidConnectionEventReason
+    {
+        REASON_UNKNOWN = -1,
+        REASON_SUCCESS = 0,             // The disconnection was initiated by the user
+        REASON_TERMINATE_LOCAL_HOST = 1,// The local device initiated disconnection
+        REASON_TERMINATE_PEER_USER = 2, // The remote device initiated graceful disconnection
+        REASON_LINK_LOSS = 3,           // This reason will only be reported when autoConnect=true,
+                                        // and connection to the device was lost for any reason other than graceful disconnection initiated by peer user,
+                                        // Android will try to reconnect automatically
+        REASON_NOT_SUPPORTED = 4,       // The device does not have required services
+        REASON_CANCELLED = 5,           // Connection attempt was canceled
+        REASON_TIMEOUT = 10,            // The connection timed out
     }
 
     sealed class AndroidNativeInterfaceImpl : INativeInterfaceImpl
@@ -64,8 +78,8 @@ namespace Systemic.Pixels.Unity.BluetoothLE.Internal.Android
                 Permission.RequestUserPermission(Permission.FineLocation);
             }
 #endif
-            onBluetoothEvent((_scannerClass != null) && (_peripheralClass != null));
             //TODO bluetooth availability events
+            onBluetoothEvent((_scannerClass != null) && (_peripheralClass != null) ? BluetoothStatus.Enabled : BluetoothStatus.Disabled);
             return true;
         }
 
@@ -235,5 +249,48 @@ namespace Systemic.Pixels.Unity.BluetoothLE.Internal.Android
         AndroidJavaObject GetDevice(ScannedPeripheral scannedPeripheral) => ((NativeBluetoothDevice)scannedPeripheral.SystemDevice).Device;
 
         AndroidJavaObject GetClient(PeripheralHandle peripheralHandle) => ((NativePeripheral)peripheralHandle.SystemClient).Client;
+
+        public static RequestStatus ToRequestStatus(int androidStatus)
+        {
+            return androidStatus switch
+            {
+                (int)AndroidRequestStatus.GATT_SUCCESS => RequestStatus.Success,
+                (int)AndroidRequestStatus.GATT_INSUFFICIENT_AUTHENTICATION => RequestStatus.ProtocolError,
+                (int)AndroidRequestStatus.GATT_READ_NOT_PERMITTED => RequestStatus.ProtocolError,
+                (int)AndroidRequestStatus.GATT_WRITE_NOT_PERMITTED => RequestStatus.ProtocolError,
+                (int)AndroidRequestStatus.GATT_REQUEST_NOT_SUPPORTED => RequestStatus.ProtocolError,
+                (int)AndroidRequestStatus.GATT_INVALID_OFFSET => RequestStatus.ProtocolError,
+                (int)AndroidRequestStatus.GATT_INVALID_ATTRIBUTE_LENGTH => RequestStatus.ProtocolError,
+                (int)AndroidRequestStatus.GATT_INSUFFICIENT_ENCRYPTION => RequestStatus.ProtocolError,
+                (int)AndroidRequestStatus.GATT_ERROR => RequestStatus.Error,
+                (int)AndroidRequestStatus.GATT_CONNECTION_CONGESTED => RequestStatus.Error,
+                (int)AndroidRequestStatus.GATT_FAILURE => RequestStatus.Error,
+                (int)AndroidRequestStatus.REASON_DEVICE_DISCONNECTED => RequestStatus.InvalidCall,
+                (int)AndroidRequestStatus.REASON_DEVICE_NOT_SUPPORTED => RequestStatus.Error,
+                (int)AndroidRequestStatus.REASON_NULL_ATTRIBUTE => RequestStatus.InvalidParameters,
+                (int)AndroidRequestStatus.REASON_REQUEST_FAILED => RequestStatus.Error,
+                (int)AndroidRequestStatus.REASON_TIMEOUT => RequestStatus.Timeout,
+                (int)AndroidRequestStatus.REASON_VALIDATION => RequestStatus.Error,
+                (int)AndroidRequestStatus.REASON_CANCELLED => RequestStatus.Canceled,
+                (int)AndroidRequestStatus.REASON_BLUETOOTH_DISABLED => RequestStatus.InvalidCall,
+                (int)AndroidRequestStatus.REASON_REQUEST_INVALID => RequestStatus.InvalidCall,
+                _ => RequestStatus.Error
+            };
+        }
+
+        public static ConnectionEventReason ToConnectionEventReason(int androidReason)
+        {
+            return androidReason switch
+            {
+                (int)AndroidConnectionEventReason.REASON_SUCCESS => ConnectionEventReason.Unknown,
+                (int)AndroidConnectionEventReason.REASON_TERMINATE_LOCAL_HOST => ConnectionEventReason.AdpaterOff,
+                (int)AndroidConnectionEventReason.REASON_TERMINATE_PEER_USER => ConnectionEventReason.Peripheral,
+                (int)AndroidConnectionEventReason.REASON_LINK_LOSS => ConnectionEventReason.LinkLoss,
+                (int)AndroidConnectionEventReason.REASON_NOT_SUPPORTED => ConnectionEventReason.NotSupported,
+                (int)AndroidConnectionEventReason.REASON_CANCELLED => ConnectionEventReason.Canceled,
+                (int)AndroidConnectionEventReason.REASON_TIMEOUT => ConnectionEventReason.Timeout,
+                _ => ConnectionEventReason.Unknown,
+            };
+        }
     }
 }

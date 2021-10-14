@@ -13,19 +13,19 @@ namespace Systemic.Pixels.Unity.BluetoothLE.Internal.Android
         void onMtuChanged(AndroidJavaObject device, int mtu)
         {
             Debug.Log($"{Operation.RequestPeripheralMtu} ==> onMtuChanged: {mtu}");
-            _onMtuResult?.Invoke(mtu, NativeError.Empty);
+            _onMtuResult?.Invoke(mtu, RequestStatus.Success);
         }
 
         void onRequestFailed(AndroidJavaObject device, int status)
         {
             Debug.LogError($"{Operation.RequestPeripheralMtu} ==> onRequestFailed: {(AndroidRequestStatus)status}");
-            _onMtuResult?.Invoke(0, new NativeError(status, "Android error"));
+            _onMtuResult?.Invoke(0, AndroidNativeInterfaceImpl.ToRequestStatus(status));
         }
 
         void onInvalidRequest()
         {
             Debug.LogError($"{Operation.RequestPeripheralMtu} ==> onInvalidRequest");
-            _onMtuResult?.Invoke(0, new NativeError((int)AndroidRequestStatus.REASON_REQUEST_INVALID, "Android error"));
+            _onMtuResult?.Invoke(0, RequestStatus.InvalidCall);
         }
     }
 }

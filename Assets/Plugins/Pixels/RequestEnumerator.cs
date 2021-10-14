@@ -19,20 +19,31 @@ namespace Systemic.Pixels.Unity.BluetoothLE
     public class RequestEnumerator : IEnumerator
     {
         readonly double _timeout;
-        bool _isTimedOut;
-        NativeError? _error;
+        RequestStatus? _status;
 
         public Operation Operation { get; }
 
-        public bool IsDone => _error.HasValue;
+        public bool IsDone => _status.HasValue;
 
-        public bool IsSuccess => _error.HasValue && _error.Value.IsEmpty;
+        public bool IsSuccess => _status.HasValue && (_status.Value == RequestStatus.Success);
 
-        public bool IsTimeOut => _isTimedOut = _isTimedOut || ((_timeout > 0) && (Time.realtimeSinceStartupAsDouble > _timeout));
+        public bool IsTimeout { get; private set; }
 
-        public int ErrorCode => _error?.Code ?? 0;
+        public RequestStatus RequestStatus => _status.HasValue ? _status.Value : RequestStatus.InProgress;
 
-        public string ErrorMessage => _error?.Message;
+        public string ErrorMessage => RequestStatus switch
+        {
+            RequestStatus.Success => null,
+            RequestStatus.InProgress => "Operation in progress",
+            RequestStatus.Canceled => "Operation canceled",
+            RequestStatus.InvalidCall => "Invalid operation",
+            RequestStatus.InvalidParameters => "Invalid parameters",
+            RequestStatus.NotSupported => "Operation not supported",
+            RequestStatus.ProtocolError => "GATT protocol error",
+            RequestStatus.AccessDenied => "Access denied",
+            RequestStatus.Timeout => "Timeout",
+            _ => "Unknown error",
+        };
 
         public object Current => null;
 
@@ -43,19 +54,28 @@ namespace Systemic.Pixels.Unity.BluetoothLE
             action?.Invoke(SetResult);
         }
 
-        protected void SetResult(NativeError error)
+        protected void SetResult(RequestStatus status)
         {
-            _error = error;
+            // Only keep first error
+            if (!_status.HasValue)
+            {
+                _status = status;
+            }
         }
 
         public virtual bool MoveNext()
         {
-            bool done = _error.HasValue || IsTimeOut;
-            if (done && IsTimeOut && (!_error.HasValue))
+            if ((!_status.HasValue) && (_timeout > 0))
             {
-                _error = new NativeError((int)Error.Timeout, "Timeout");
+                // Update timeout
+                if (Time.realtimeSinceStartupAsDouble > _timeout)
+                {
+                    IsTimeout = true;
+                    _status = RequestStatus.Timeout;
+                }
             }
-            return !done;
+
+            return !_status.HasValue;
         }
 
         public void Reset()
@@ -99,7 +119,7 @@ namespace Systemic.Pixels.Unity.BluetoothLE
                 done = !base.MoveNext();
 
                 // Did we fail with a timeout?
-                if (done && IsTimeOut && _peripheral.IsValid)
+                if (done && IsTimeout && _peripheral.IsValid)
                 {
                     // Cancel connection attempt
                     _disconnect = new DisconnectRequestEnumerator(_peripheral);

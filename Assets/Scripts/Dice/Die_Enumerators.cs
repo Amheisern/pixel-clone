@@ -5,32 +5,31 @@ namespace Dice
 {
     partial class Die
     {
-        protected interface IOperationEnumerator : IEnumerator, System.IDisposable
+        protected interface IOperationEnumerator : IEnumerator
         {
             bool IsDone { get; }
 
-            bool IsSuccess { get; }
+            bool IsTimeout { get; }
 
-            bool IsTimeOut { get; }
+            bool IsSuccess { get; }
 
             string Error { get; }
         }
 
-        class WaitForMessageEnumerator<T> : IOperationEnumerator
+        protected class WaitForMessageEnumerator<T> : IOperationEnumerator
             where T : IDieMessage, new()
         {
             readonly DieMessageType _msgType;
             readonly float _timeout;
-            bool _isTimedOut;
             bool _isStarted;
 
-            public bool IsDone => IsSuccess || (Error != null) || IsTimeOut;
+            public bool IsDone => IsSuccess || (Error != null);
 
             public bool IsSuccess => Message != null;
 
-            public string Error { get; protected set; }
+            public bool IsTimeout { get; private set; }
 
-            public bool IsTimeOut => _isTimedOut = _isTimedOut || ((_timeout > 0) && (Time.realtimeSinceStartupAsDouble > _timeout));
+            public string Error { get; protected set; }
 
             public T Message { get; private set; }
 
@@ -53,16 +52,28 @@ namespace Dice
             {
                 if (IsDisposed) throw new System.ObjectDisposedException(nameof(WaitForMessageEnumerator<T>));
 
+                // Subscribe to our response message on first call
                 if (!_isStarted)
                 {
                     _isStarted = true;
                     Die.AddMessageHandler(_msgType, OnMessage);
                 }
 
+                if ((!IsSuccess) && (_timeout > 0) && (Error == null))
+                {
+                    // Update timeout
+                    IsTimeout = Time.realtimeSinceStartupAsDouble > _timeout;
+                    if (IsTimeout)
+                    {
+                        Error = $"Timeout while waiting for message of type {typeof(T)}";
+                    }
+                }
+
                 // ErrorMessage might be set by child class
-                bool done = IsSuccess || IsTimeOut || (Error != null);
+                bool done = IsSuccess || IsTimeout || (Error != null);
                 if (done)
                 {
+                    // Unsubscribe from message notifications
                     Die.RemoveMessageHandler(_msgType, OnMessage);
 
                     if (IsSuccess)
@@ -70,13 +81,14 @@ namespace Dice
                         if (Error != null)
                         {
                             // Some error occurred, we might have got an old message
+                            // Forget message, this will make IsSuccess return false
                             Message = default;
                         }
                     }
                     else if (Error == null)
                     {
                         // Operation failed
-                        Error = $"{(IsTimeOut ? "Timeout on" : "Unknown error")} waiting for message of type {typeof(T)}";
+                        Error = $"Unknown error while waiting for message of type {typeof(T)}";
                     }
                 }
                 return !done;
@@ -87,12 +99,6 @@ namespace Dice
                 // Not supported
             }
 
-            public virtual void Dispose()
-            {
-                IsDisposed = true;
-                Die.RemoveMessageHandler(_msgType, OnMessage);
-            }
-
             void OnMessage(IDieMessage msg)
             {
                 Debug.Assert(msg is T);
@@ -101,7 +107,7 @@ namespace Dice
             }
         }
 
-        class SendMessageAndWaitForResponseEnumerator<TMsg, TResp> : WaitForMessageEnumerator<TResp>
+        protected class SendMessageAndWaitForResponseEnumerator<TMsg, TResp> : WaitForMessageEnumerator<TResp>
             where TMsg : IDieMessage, new()
             where TResp : IDieMessage, new()
         {
@@ -137,12 +143,6 @@ namespace Dice
                 }
 
                 return base.MoveNext();
-            }
-
-            public override void Dispose()
-            {
-                base.Dispose();
-                _sendMessage.Dispose();
             }
         }
 

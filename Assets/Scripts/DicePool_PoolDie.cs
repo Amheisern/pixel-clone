@@ -10,6 +10,8 @@ using Peripheral = Systemic.Pixels.Unity.BluetoothLE.ScannedPeripheral;
 
 partial class DicePool
 {
+    public const string ConnectTimeoutErrorMessage = "Timeout trying to connect, Die may be out of range or turned off";
+
     sealed class PoolDie : Die
     {
         /// <summary>
@@ -198,91 +200,58 @@ partial class DicePool
 
                 IEnumerator ConnectAsync()
                 {
-                    Systemic.Pixels.Unity.BluetoothLE.RequestEnumerator request = null;
-                    request = Central.ConnectPeripheralAsync(_peripheral, (p, connected) =>
-                    {
-                        // Is Unity behavior still valid?
-                        if ((this != null) && (!request.IsTimeOut))
-                        {
-                            Debug.Assert(_peripheral.SystemId == p.SystemId);
-                            Debug.Log($"Die {name}: {(connected ? "" : "dis")}connected");
+                    Systemic.Pixels.Unity.BluetoothLE.RequestEnumerator connectRequest = null;
+                    connectRequest = Central.ConnectPeripheralAsync(
+                        _peripheral,
+                        // Forward connection event it our behavior is still valid and the request hasn't timed-out
+                        // (in which case the disconnect event is already taken care by the code following the yield below)
+                        (p, connected) => { if ((this != null) && (!connectRequest.IsTimeout)) OnConnectionEvent(p, connected); },
+                        AppConstants.Instance.ConnectionTimeout);
 
-                            if ((!connected) && (connectionState != DieConnectionState.Disconnecting))
-                            {
-                                if ((connectionState == DieConnectionState.Connecting) || (connectionState == DieConnectionState.Identifying))
-                                {
-                                    NotifyConnectionResult("Disconnected unexpectedly");
-                                }
-                                else
-                                {
-                                    Debug.LogError($"{_peripheral.Name}: Got disconnected unexpectedly while in state {connectionState}");
-                                }
-
-                                // Reset connection count
-                                _connectionCount = 0;
-
-                                connectionState = DieConnectionState.Available;
-                                SetLastError(DieLastError.Disconnected);
-
-                                onDisconnectedUnexpectedly?.Invoke();
-                            }
-                        }
-                    }, AppConstants.Instance.ConnectionTimeout);
-
-                    yield return request;
+                    yield return connectRequest;
 
                     bool canceled = connectionState != DieConnectionState.Connecting;
                     if (!canceled)
                     {
                         string error = null;
-                        if (request.IsSuccess)
+                        if (connectRequest.IsSuccess)
                         {
                             // Now connected to die, get characteristics and subscribe before switching to Identifying state
 
                             var characteristics = Central.GetPeripheralServiceCharacteristics(_peripheral, pixelService);
                             if ((characteristics != null) && characteristics.Contains(subscribeCharacteristic) && characteristics.Contains(writeCharacteristic))
                             {
-                                request = Central.SubscribeCharacteristicAsync(_peripheral, pixelService, subscribeCharacteristic, data =>
-                                {
-                                    // Is Unity behavior still valid?
-                                    if (this != null)
-                                    {
-                                        // Process the message coming from the actual die!
-                                        var message = DieMessages.FromByteArray(data);
-                                        if (message != null)
-                                        {
-                                            Debug.Log($"Die {name}: received message of type {message.GetType()}");
+                                var subscribeRequest = Central.SubscribeCharacteristicAsync(
+                                    _peripheral, pixelService, subscribeCharacteristic,
+                                    // Forward value change event if our behavior is still valid
+                                    data => { if (this != null) { OnValueChanged(data); } });
 
-                                            if (messageDelegates.TryGetValue(message.type, out MessageReceivedDelegate del))
-                                            {
-                                                del.Invoke(message);
-                                            }
-                                        }
-                                    }
-                                });
-
-                                yield return request;
-                                if (!request.IsSuccess)
+                                yield return subscribeRequest;
+                                if (subscribeRequest.IsTimeout)
                                 {
-                                    error = $"Subscribe request failed: {request.ErrorMessage}";
+                                    error = ConnectTimeoutErrorMessage;
+                                }    
+                                else if (!subscribeRequest.IsSuccess)
+                                {
+                                    error = $"Subscribe request failed, {subscribeRequest.ErrorMessage}";
                                 }
                             }
                             else if (characteristics == null)
                             {
-                                error = $"Characteristics request failed: {request.ErrorMessage}";
+                                error = $"Characteristics request failed";
                             }
                             else
                             {
                                 error = "Missing required characteristics";
                             }
                         }
-                        else if (request.IsTimeOut)
+                        else if (connectRequest.IsTimeout)
                         {
-                            error = "Timeout trying to connect to Die, is it too far, turned off or discharged?";
+                            error = ConnectTimeoutErrorMessage;
                         }
                         else
                         {
-                            error = $"Connection failed: {request.ErrorMessage}";
+                            error = $"Connection failed: {connectRequest.ErrorMessage}";
                         }
 
                         // Check that we are still in the right state
@@ -323,45 +292,73 @@ partial class DicePool
                     }
                 }
             }
-        }
 
-        IEnumerator DoIdentifyAsync(System.Action<string> onResult)
-        {
-            string error = null;
-
-            Debug.Assert(connectionState == DieConnectionState.Connecting);
-            if (connectionState == DieConnectionState.Connecting)
+            IEnumerator DoIdentifyAsync(System.Action<string> onResult)
             {
-                // Remember that the die was just connected to (and trigger events)
+                Debug.Assert(connectionState == DieConnectionState.Connecting);
+
+                // We're going to identify the die
                 connectionState = DieConnectionState.Identifying;
 
                 // Reset error
                 SetLastError(DieLastError.None);
 
-                // And have it update its info (unique Id, appearance, etc...) so it can finally be ready
-
                 // Ask the die who it is!
-                bool success = false;
-                if (connectionState == DieConnectionState.Identifying)
-                {
-                    yield return GetDieInfoAsync((res, err) => (success, error) = (res, err));
+                var request = new SendMessageAndWaitForResponseEnumerator<DieMessageWhoAreYou, DieMessageIAmADie> (this) as IOperationEnumerator;
+                yield return request;
 
-                    if (success && (connectionState == DieConnectionState.Identifying))
-                    {
-                        // Get the die initial state
-                        yield return GetDieState((res, err) => (success, error) = (res, err));
-                    }
+                if (request.IsSuccess && (connectionState == DieConnectionState.Identifying))
+                {
+                    // Get the die initial state
+                    request = new SendMessageAndWaitForResponseEnumerator<DieMessageRequestState, DieMessageState>(this);
+                    yield return request;
                 }
 
-                Debug.Assert(success == (error == null));
-            }
-            else
-            {
-                // Wrong state, just abort without notifying
-                Debug.Log($"Die {name}: connect sequence interrupted");
+                // Report result
+                onResult(request.IsTimeout ? ConnectTimeoutErrorMessage : request.Error);
             }
 
-            onResult(error);
+            void OnConnectionEvent(Peripheral p, bool connected)
+            {
+                Debug.Assert(_peripheral.SystemId == p.SystemId);
+                Debug.Log($"Die {name}: {(connected ? "" : "dis")}connected");
+
+                if ((!connected) && (connectionState != DieConnectionState.Disconnecting))
+                {
+                    if ((connectionState == DieConnectionState.Connecting) || (connectionState == DieConnectionState.Identifying))
+                    {
+                        NotifyConnectionResult("Disconnected unexpectedly");
+                    }
+                    else
+                    {
+                        Debug.LogError($"{_peripheral.Name}: Got disconnected unexpectedly while in state {connectionState}");
+                    }
+
+                    // Reset connection count
+                    _connectionCount = 0;
+
+                    connectionState = DieConnectionState.Available;
+                    SetLastError(DieLastError.Disconnected);
+
+                    onDisconnectedUnexpectedly?.Invoke();
+                }
+            }
+
+            void OnValueChanged(byte[] data)
+            {
+                Debug.Assert(data != null);
+                // Process the message coming from the actual die!
+                var message = DieMessages.FromByteArray(data);
+                if (message != null)
+                {
+                    Debug.Log($"Die {name}: received message of type {message.GetType()}");
+
+                    if (messageDelegates.TryGetValue(message.type, out MessageReceivedDelegate del))
+                    {
+                        del.Invoke(message);
+                    }
+                }
+            }
         }
 
         void NotifyConnectionResult(string error = null)
@@ -423,13 +420,13 @@ partial class DicePool
 
             public bool IsDone => _request.IsDone;
 
-            public bool IsSuccess => _request.IsSuccess;
+            public bool IsTimeout => _request.IsTimeout;
 
-            public bool IsTimeOut => _request.IsTimeOut;
+            public bool IsSuccess => _request.IsSuccess;
 
             public string Error => _request.ErrorMessage;
 
-            public object Current => null;
+            public object Current => _request.Current;
 
             public WriteDataEnumerator(Peripheral peripheral, byte[] bytes, float timeout)
             {
@@ -444,10 +441,6 @@ partial class DicePool
             public void Reset()
             {
                 _request.Reset();
-            }
-
-            public void Dispose()
-            {
             }
         }
 

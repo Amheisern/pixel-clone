@@ -92,21 +92,7 @@ namespace Dice
 
         public IEnumerator GetDieInfoAsync(DieOperationResultHandler<bool> onResult = null)
         {
-            var op = new SendMessageAndProcessResponseEnumerator<DieMessageWhoAreYou, DieMessageIAmADie>(this,
-                idMsg =>
-                {
-                    bool appearanceChanged = faceCount != idMsg.faceCount || designAndColor != idMsg.designAndColor;
-                    faceCount = idMsg.faceCount;
-                    designAndColor = idMsg.designAndColor;
-                    dataSetHash = idMsg.dataSetHash;
-                    flashSize = idMsg.flashSize;
-                    firmwareVersionId = idMsg.versionInfo;
-                    Debug.Log($"Die {name}: {flashSize} bytes available for data, current dataset hash {dataSetHash:X08}, firmware version is {firmwareVersionId}");
-                    if (appearanceChanged)
-                    {
-                        AppearanceChanged?.Invoke(this, faceCount, designAndColor);
-                    }
-                });
+            var op = new SendMessageAndWaitForResponseEnumerator<DieMessageWhoAreYou, DieMessageIAmADie>(this);
             yield return op;
             onResult?.Invoke(op.IsSuccess, op.Error);
         }
@@ -262,6 +248,22 @@ namespace Dice
         }
 
         #region MessageHandlers
+
+        void OnIAmADieMessage(IDieMessage message)
+        {
+            var idMsg = (DieMessageIAmADie)message;
+            bool appearanceChanged = faceCount != idMsg.faceCount || designAndColor != idMsg.designAndColor;
+            faceCount = idMsg.faceCount;
+            designAndColor = idMsg.designAndColor;
+            dataSetHash = idMsg.dataSetHash;
+            flashSize = idMsg.flashSize;
+            firmwareVersionId = idMsg.versionInfo;
+            Debug.Log($"Die {name}: {flashSize} bytes available for data, current dataset hash {dataSetHash:X08}, firmware version is {firmwareVersionId}");
+            if (appearanceChanged)
+            {
+                AppearanceChanged?.Invoke(this, faceCount, designAndColor);
+            }
+        }
 
         void OnStateMessage(IDieMessage message)
         {

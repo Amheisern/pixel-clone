@@ -226,7 +226,7 @@ public sealed partial class DicePool : SingletonMonoBehaviour<DicePool>
                 {
                     BeginScanForDice();
 
-                    Debug.Log("Scanning timeout: " + AppConstants.Instance.ScanTimeout);
+                    Debug.Log($"Scanning for dice {string.Join(", ", dice.Select(d => d.name))} with timeout of {AppConstants.Instance.ScanTimeout}s");
 
                     // Wait for all dice to be scanned, or timeout
                     float scanTimeout = Time.realtimeSinceStartup + AppConstants.Instance.ScanTimeout;
@@ -253,7 +253,7 @@ public sealed partial class DicePool : SingletonMonoBehaviour<DicePool>
                     }
                     else
                     {
-                        results[i] = "Could not find Die";
+                        results[i] = ConnectTimeoutErrorMessage;
                     }
                 }
 

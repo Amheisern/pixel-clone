@@ -18,6 +18,7 @@ import no.nordicsemi.android.ble.annotation.WriteType;
 
 import com.unity3d.player.UnityPlayer;
 
+// Not thread safe!
 public class Peripheral
 {
 	private static final String TAG = "systemic";
@@ -243,15 +244,21 @@ public class Peripheral
     {
         Log.v(TAG, "==> disconnect");
 
-        // First cancel all on-going operations
+        // Cancel all on-going operations so the disconnect can happen immediately
         _client.cancelOperations();
 
-        // Disconnect (request might fail if we are already disconnected,
-        // we could check the client connection state but since operations are asynchronous
-        // it might change by the time the disconnect is processed anyways)
-        _client.disconnect()
-            .done(callback).fail(callback).invalid(callback)
-            .enqueue();
+        // Disconnect (request will be ignored we are disconnecting)
+        if (_client.getConnectionState() != BluetoothProfile.STATE_DISCONNECTING)
+        {
+            _client.disconnect()
+                .done(callback).fail(callback).invalid(callback)
+                .enqueue();
+        }
+        else if (callback != null)
+        {
+            // Immediately Notify invalid request
+            callback.onInvalidRequest();
+        }
     }
 
     public String getName()

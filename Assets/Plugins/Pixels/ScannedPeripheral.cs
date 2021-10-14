@@ -6,6 +6,7 @@ using System.Linq;
 
 namespace Systemic.Pixels.Unity.BluetoothLE
 {
+    // Readonly class
     public class ScannedPeripheral
     {
         public interface ISystemDevice { }

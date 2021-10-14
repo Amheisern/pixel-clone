@@ -137,10 +137,10 @@ namespace Systemic.Pixels.Unity.BluetoothLE
 
             CreateBehaviour();
 
-            bool success = NativeInterface.Initialize(available =>
+            bool success = NativeInterface.Initialize(status =>
             {
-                Debug.Log($"[BLE] Bluetooth status: {(available ? "" : "not")} available");
-                IsReady = available;
+                Debug.Log($"[BLE] Bluetooth status: {status}");
+                IsReady = status == BluetoothStatus.Enabled;
                 IsScanning = IsScanning && IsReady;
             });
 
@@ -240,7 +240,7 @@ namespace Systemic.Pixels.Unity.BluetoothLE
                 ps.PeripheralHandle = NativeInterface.CreatePeripheral(peripheral,
                     (connectionEvent, reason) => EnqueueAction(ps, () =>
                     {
-                        Debug.Log($"[BLE:{ps.ScannedPeripheral.Name}] ConnectionEvent => {connectionEvent}{(reason == ConnectionEventReason.Success ? "" : $", reason: { reason}")}");
+                        Debug.Log($"[BLE:{ps.ScannedPeripheral.Name}] Got connection event `{connectionEvent}`{(reason == ConnectionEventReason.Success ? "" : $" with reason `{reason}`")}");
                         OnPeripheralConnectionEvent(ps, connectionEvent, reason);
                     }));
 
@@ -269,13 +269,12 @@ namespace Systemic.Pixels.Unity.BluetoothLE
                                 ps.PeripheralHandle,
                                 ps.RequiredServices,
                                 false, //TODO autoConnect
-                                error => EnqueueAction(ps, () =>
+                                status => EnqueueAction(ps, () =>
                                 {
-                                    Debug.Log($"[BLE:{ps.ScannedPeripheral.Name}] Connect result => {error.Code}");
+                                    Debug.Log($"[BLE:{ps.ScannedPeripheral.Name}] Connect result is `{status}`");
 
                                     if (ps.PeripheralHandle.IsValid
-                                        && ((error.Code == (int)RequestStatus.Timeout) || (error.Code == (int)RequestStatus.AccessDenied)
-                                            || (error.Code == (int)Internal.Android.AndroidRequestStatus.REASON_TIMEOUT)))
+                                        && ((status == RequestStatus.Timeout) || (status == RequestStatus.AccessDenied)))
                                     {
                                         // Try again
                                         Debug.Log($"[BLE:{ps.ScannedPeripheral.Name}] Re-connecting...");
@@ -283,14 +282,15 @@ namespace Systemic.Pixels.Unity.BluetoothLE
                                     }
                                     else
                                     {
-                                        onResult(error);
+                                        onResult(status);
                                     }
                                 }));
                         }
                     }
                     else
                     {
-                        onResult(new NativeError((int)Error.Unknown));
+                        // Somehow the peripheral object wasn't created
+                        onResult(RequestStatus.InvalidParameters);
                     }
                 });
 
@@ -313,12 +313,12 @@ namespace Systemic.Pixels.Unity.BluetoothLE
                     {
                         // Change MTU to maximum (note: MTU can only be set once)
                         NativeInterface.RequestPeripheralMtu(ps.PeripheralHandle, NativeInterface.MaxMtu,
-                            (mtu, error) => EnqueueAction(ps, () =>
+                            (mtu, status) => EnqueueAction(ps, () =>
                             {
-                                Debug.Log($"[BLE:{ps.ScannedPeripheral.Name}] MTU {(error.IsEmpty ? "changed to" : "is")}: {mtu}");
-                                if (error.HasError && (error.Code != (int)Error.NotSupported))
+                                Debug.Log($"[BLE:{ps.ScannedPeripheral.Name}] MTU {(status == RequestStatus.Success ? "changed to" : "kept at")} {mtu} bytes");
+                                if ((status != RequestStatus.Success) && (status != RequestStatus.NotSupported))
                                 {
-                                    Debug.LogError($"[BLE:{ps.ScannedPeripheral.Name}] error changing MTU: {error}");
+                                    Debug.LogError($"[BLE:{ps.ScannedPeripheral.Name}] Failed to change MTU, result is `{status}`");
                                 }
 
                                 if (ps.PeripheralHandle.IsValid)
@@ -497,18 +497,20 @@ namespace Systemic.Pixels.Unity.BluetoothLE
 
         static NativeValueChangedHandler GetNativeHandler(Action<byte[]> onValueChanged, NativeRequestResultHandler onResult)
         {
-            return (data, error) =>
+            return (data, status) =>
             {
                 // Not running on main thread!
                 try
                 {
-                    if (error.IsEmpty)
+                    if (status == RequestStatus.Success)
                     {
+                        Debug.Assert(data != null);
                         EnqueueAction(() => onValueChanged(data));
                     }
                     else
                     {
-                        onResult(error);
+                        Debug.Assert(data == null);
+                        onResult(status);
                     }
                 }
                 catch (Exception e)

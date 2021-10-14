@@ -286,7 +286,7 @@ public class PixelsApp : SingletonMonoBehaviour<PixelsApp>
                             {
                                 Debug.Log($"Die {editDie.name} already has preset with hash 0x{hash:X8} programmed");
                                 errorTitle = "Profile already Programmed";
-                                error = $"Die {editDie.name} already has profile \"{behavior.name}\" programmed.";
+                                error = $"Die {editDie.name} already has profile \"{behavior.name}\" programmed";
                                 success = true;
                             }
                         }
@@ -309,7 +309,7 @@ public class PixelsApp : SingletonMonoBehaviour<PixelsApp>
                         }
 
                         // We may still have a message to show even if the operation was successful
-                        ShowDialogBox(errorTitle, error);
+                        ShowDialogBox(errorTitle, error + ".");
                     }
                     callback?.Invoke(success);
                 }
@@ -317,7 +317,7 @@ public class PixelsApp : SingletonMonoBehaviour<PixelsApp>
             else
             {
                 HideProgrammingBox();
-                ShowDialogBox("Error connecting to " + editDie.name, err);
+                ShowDialogBox("Error connecting to " + editDie.name, err + ".");
                 callback(false);
             }
         });

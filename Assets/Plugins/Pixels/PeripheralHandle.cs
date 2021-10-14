@@ -1,6 +1,7 @@
 
 namespace Systemic.Pixels.Unity.BluetoothLE
 {
+    // Readonly struct
     public struct PeripheralHandle
     {
         public interface INativePeripheral { }
