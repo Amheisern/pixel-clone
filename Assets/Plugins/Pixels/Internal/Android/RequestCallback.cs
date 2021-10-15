@@ -3,7 +3,7 @@ using UnityEngine;
 
 namespace Systemic.Pixels.Unity.BluetoothLE.Internal.Android
 {
-    sealed class RequestCallback : AndroidJavaProxy
+    internal sealed class RequestCallback : AndroidJavaProxy
     {
         Operation _operation;
         NativeRequestResultHandler _onResult;

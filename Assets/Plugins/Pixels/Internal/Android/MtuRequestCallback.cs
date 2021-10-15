@@ -2,7 +2,7 @@ using UnityEngine;
 
 namespace Systemic.Pixels.Unity.BluetoothLE.Internal.Android
 {
-    sealed class MtuRequestCallback : AndroidJavaProxy
+    internal sealed class MtuRequestCallback : AndroidJavaProxy
     {
         NativeValueRequestResultHandler<int> _onMtuResult;
 

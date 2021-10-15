@@ -2,7 +2,7 @@ using UnityEngine;
 
 namespace Systemic.Pixels.Unity.BluetoothLE.Internal.Android
 {
-    sealed class ScannerCallback : AndroidJavaProxy
+    internal sealed class ScannerCallback : AndroidJavaProxy
     {
         public delegate void ScanResultHandler(AndroidJavaObject device, AdvertisementDataJson advertisementData);
 

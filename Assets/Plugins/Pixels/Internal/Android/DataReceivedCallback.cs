@@ -2,7 +2,7 @@ using UnityEngine;
 
 namespace Systemic.Pixels.Unity.BluetoothLE.Internal.Android
 {
-    sealed class DataReceivedCallback : AndroidJavaProxy
+    internal sealed class DataReceivedCallback : AndroidJavaProxy
     {
         NativeValueChangedHandler _onDataReceived;
 

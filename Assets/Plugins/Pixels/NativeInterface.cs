@@ -11,7 +11,7 @@ namespace Systemic.Pixels.Unity.BluetoothLE
         Enabled,
     }
 
-    // Must match C++ enum Pixels::CoreBluetoothLE::ConnectionEvent
+    // Must match C++ enum Pixels::CoreBluetoothLE::ConnectionEvent and Objective-C PXBlePeripheralConnectionEvent
     public enum ConnectionEvent
     {
         // Raised at the beginning of the connect sequence, will be followed either by Connected or FailedToConnect
@@ -33,7 +33,7 @@ namespace Systemic.Pixels.Unity.BluetoothLE
         Disconnected,
     }
 
-    // Must match C++ enum Pixels::CoreBluetoothLE::ConnectionEventReason
+    // Must match C++ enum Pixels::CoreBluetoothLE::ConnectionEventReason and Objective-C PXBlePeripheralConnectionEventReason
     public enum ConnectionEventReason
     {
         // The disconnect happened for an unknown reason
@@ -68,11 +68,14 @@ namespace Systemic.Pixels.Unity.BluetoothLE
         Error, // Generic error
         InProgress,
         Canceled,
+        Disconnected,
+        InvalidPeripheral,
         InvalidCall,
         InvalidParameters,
         NotSupported,
         ProtocolError,
         AccessDenied,
+        AdpaterOff,
         Timeout,
     }
 
@@ -86,6 +89,7 @@ namespace Systemic.Pixels.Unity.BluetoothLE
     [Flags]
     public enum CharacteristicProperties : ulong
     {
+        None = 0,
         Broadcast = 0x001, // Characteristic is broadcastable
         Read = 0x002, // Characteristic is readable
         WriteWithoutResponse = 0x004, // Characteristic can be written without response
@@ -154,23 +158,25 @@ namespace Systemic.Pixels.Unity.BluetoothLE
             return _impl.CreatePeripheral(bluetoothAddress, onConnectionEventChanged);
         }
 
-        public static PeripheralHandle CreatePeripheral(ScannedPeripheral peripheral, NativePeripheralConnectionEventHandler onConnectionEvent)
+        public static PeripheralHandle CreatePeripheral(ScannedPeripheral scannedPeripheral, NativePeripheralConnectionEventHandler onConnectionEvent)
         {
-            if (peripheral.SystemDevice == null) throw new ArgumentException("ScannedPeripheral has null SystemDevice", nameof(peripheral));
+            if (scannedPeripheral == null) throw new ArgumentNullException(nameof(scannedPeripheral));
+            if (!((IScannedPeripheral)scannedPeripheral).IsValid) throw new ArgumentException("Invalid ScannedPeripheral", nameof(scannedPeripheral));
             if (onConnectionEvent == null) throw new ArgumentNullException(nameof(onConnectionEvent));
 
             SanityCheck();
 
-            return _impl.CreatePeripheral(peripheral, onConnectionEvent);
+            return _impl.CreatePeripheral(scannedPeripheral, onConnectionEvent);
         }
 
         public static void ReleasePeripheral(PeripheralHandle peripheral)
         {
-            if (!peripheral.IsValid) throw new ArgumentException("Invalid PeripheralHandle", nameof(peripheral));
-
             SanityCheck();
 
-            _impl.ReleasePeripheral(peripheral);
+            if (peripheral.IsValid)
+            {
+                _impl.ReleasePeripheral(peripheral);
+            }
         }
 
         public static void ConnectPeripheral(PeripheralHandle peripheral, IEnumerable<Guid> requiredServices, bool autoConnect, NativeRequestResultHandler onResult)

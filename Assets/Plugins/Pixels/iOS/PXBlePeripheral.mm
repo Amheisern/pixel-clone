@@ -33,6 +33,10 @@ static NSError *bluetoothDisabledError = [NSError errorWithDomain:[NSString stri
                                                              code:-100 // Same value as Nordic's Android BLE library
                                                          userInfo:@{ NSLocalizedDescriptionKey: @"Bluetooth disabled" }];
 
+static NSError *connectionError = [NSError errorWithDomain:[NSString stringWithFormat:@"%@.errorDomain", [[NSBundle mainBundle] bundleIdentifier]]
+                                                             code:-99
+                                                         userInfo:@{ NSLocalizedDescriptionKey: @"Connection error" }];
+
 //
 // Getters
 //
@@ -71,9 +75,10 @@ static NSError *bluetoothDisabledError = [NSError errorWithDomain:[NSString stri
         _centralDelegate = centralManagerDelegate;
         _peripheral = peripheral;
         _peripheral.delegate = self;
+        _connectInProgress = _disconnectInProgress = false;
         _connectionEventHandler = connectionEventHandler;
         _rssi = 0;
-        _pendingRequests = [NSMutableArray<bool (^)()> new];
+        _pendingRequests = [NSMutableArray<NSError *(^)()> new];
         _completionHandlers = [NSMutableArray<void (^)(NSError *error)> new];
         _valueChangedHandlers = [NSMapTable<CBCharacteristic *, void (^)(CBCharacteristic *characteristic, NSError *error)> strongToStrongObjectsMapTable];
         
@@ -84,7 +89,7 @@ static NSError *bluetoothDisabledError = [NSError errorWithDomain:[NSString stri
             // Be sure to not use self directly (or implictly by referencing a property)
             // otherwise it creates a strong reference to itself and prevents the instance's deallocation
             PXBlePeripheral *strongSelf = weakSelf;
-            if (strongSelf != nil)
+            if (strongSelf)
             {
                 switch (connectionEvent)
                 {
@@ -97,27 +102,41 @@ static NSError *bluetoothDisabledError = [NSError errorWithDomain:[NSString stri
                     case PXBlePeripheralConnectionEventDisconnected:
                     {
                         NSLog(@">> PeripheralConnectionEvent = disconnected with error %@", error);
-                        PXBlePeripheralConnectionEventReason reason = PXBlePeripheralConnectionEventReasonUnreachable;
-                        if (strongSelf->_discoveryDisconnectReason != PXBlePeripheralConnectionEventReasonSuccess)
+                        PXBlePeripheralConnectionEventReason reason = strongSelf->_discoveryDisconnectReason;
+                        if (reason != PXBlePeripheralConnectionEventReasonSuccess)
                         {
-                            reason = strongSelf->_discoveryDisconnectReason;
                             strongSelf->_discoveryDisconnectReason = PXBlePeripheralConnectionEventReasonSuccess;
                         }
-
+                        else if (!strongSelf->_disconnectInProgress)
+                        {
+                            reason = PXBlePeripheralConnectionEventReasonTimeout;
+                        }
+                        
+                        strongSelf->_disconnectInProgress = false;
+                        if (strongSelf->_connectInProgress)
+                        {
+                            error = connectionError;
+                        }
+                        
+                        if (strongSelf->_connectionEventHandler)
+                        {
+                            strongSelf->_connectionEventHandler(PXBlePeripheralConnectionEventDisconnected, reason);
+                        }
                         // We're now disconnected, notify error and clear any pending request
                         // Note: we could skip clear when there is no error (meaning that the disconnect was intentional)
                         //       but we're doing the same as in Nordic's Android BLE library
+                        //TODO really?
                         [strongSelf reportRequestResult:error clearPendingRequests:true];
-
-                        if (connectionEventHandler)
-                        {
-                            connectionEventHandler(PXBlePeripheralConnectionEventDisconnected, reason);
-                        }
                         break;
                     }
                         
                     case PXBlePeripheralConnectionEventFailedToConnect:
                         NSLog(@">> PeripheralConnectionEvent = failed with error %@", error);
+                        if (strongSelf->_connectionEventHandler)
+                        {
+                            strongSelf->_connectionEventHandler(PXBlePeripheralConnectionEventDisconnected, PXBlePeripheralConnectionEventReasonTimeout);
+                        }
+
                         [strongSelf reportRequestResult:error];
                         break;
                         
@@ -140,6 +159,35 @@ static NSError *bluetoothDisabledError = [NSError errorWithDomain:[NSString stri
     NSLog(@"PXBlePeripheral dealloc");
 }
 
+
+- (void)cancelQueue
+{
+    NSLog(@">> cancelQueue");
+    
+    @synchronized (_pendingRequests)
+    {
+        void (^handler)(NSError *error) = nil;
+        bool keepFirst = _completionHandlers.count > _pendingRequests.count;
+        if (keepFirst)
+        {
+            handler = _completionHandlers[0];
+        }
+        
+        [_pendingRequests removeAllObjects];
+        [_completionHandlers removeAllObjects];
+        if (keepFirst)
+        {
+            [_completionHandlers addObject:handler];
+        }
+    }
+    
+    if (_connectInProgress)
+    {
+        _discoveryDisconnectReason = PXBlePeripheralConnectionEventReasonCanceled;
+        [_centralDelegate.centralManager cancelPeripheralConnection:self->_peripheral];
+    }
+}
+
 - (void)queueConnectWithServices:(NSArray<CBUUID *> *)services
                completionHandler:(void (^)(NSError *error))completionHandler
 {
@@ -148,11 +196,23 @@ static NSError *bluetoothDisabledError = [NSError errorWithDomain:[NSString stri
     NSArray<CBUUID *> *requiredServices = [services copy];
     [self queueRequest:^{
         NSLog(@">> Connect");
+        _connectInProgress = true;
+        if (self->_connectionEventHandler)
+        {
+            self->_connectionEventHandler(PXBlePeripheralConnectionEventConnecting, PXBlePeripheralConnectionEventReasonSuccess);
+        }
         _requiredServices = requiredServices;
         [_centralDelegate.centralManager connectPeripheral:self->_peripheral options:nil];
-        return true;
+        return (NSError *)nil;
     }
- withCompletionHandler:completionHandler];
+     completionHandler:^(NSError *error) {
+        NSLog(@">> Connect result %@", error);
+        _connectInProgress = false;
+        if (completionHandler)
+        {
+            completionHandler(error);
+        }
+    }];
 }
 
 - (void)queueDisconnect:(void (^)(NSError *error))completionHandler
@@ -161,10 +221,15 @@ static NSError *bluetoothDisabledError = [NSError errorWithDomain:[NSString stri
     
     [self queueRequest:^{
         NSLog(@">> Disconnect");
-        [_centralDelegate.centralManager cancelPeripheralConnection:self->_peripheral];
-        return true;
+        self->_disconnectInProgress = true;
+        if (self->_connectionEventHandler)
+        {
+            self->_connectionEventHandler(PXBlePeripheralConnectionEventDisconnecting, PXBlePeripheralConnectionEventReasonSuccess);
+        }
+        [self->_centralDelegate.centralManager cancelPeripheralConnection:self->_peripheral];
+        return (NSError *)nil;
     }
- withCompletionHandler:completionHandler];
+     completionHandler:completionHandler];
 }
 
 - (void)queueReadRssi:(void (^)(NSError *error))completionHandler
@@ -174,9 +239,9 @@ static NSError *bluetoothDisabledError = [NSError errorWithDomain:[NSString stri
     [self queueRequest:^{
         NSLog(@">> ReadRSSI");
         [self->_peripheral readRSSI];
-        return true;
+        return (NSError *)nil;
     }
- withCompletionHandler:completionHandler];
+     completionHandler:completionHandler];
 }
 
 - (void)queueReadValueForCharacteristic:(CBCharacteristic *)characteristic
@@ -189,15 +254,15 @@ static NSError *bluetoothDisabledError = [NSError errorWithDomain:[NSString stri
         if (!characteristic || !valueChangedHandler || !self.isConnected)
         {
             NSLog(@">> ReadValueForCharacteristic -> invalid call");
-            return false;
+            return [NSError errorWithDomain:CBErrorDomain code:CBErrorUnknown userInfo:0]; //TODO
         }
         
         NSLog(@">> ReadValueForCharacteristic");
         [self->_valueChangedHandlers setObject:valueChangedHandler forKey:characteristic];
         [self->_peripheral readValueForCharacteristic:characteristic];
-        return true;
+        return (NSError *)nil;
     }
- withCompletionHandler:completionHandler];
+     completionHandler:completionHandler];
 }
 
 - (void)queueWriteValue:(NSData *)data
@@ -211,7 +276,7 @@ static NSError *bluetoothDisabledError = [NSError errorWithDomain:[NSString stri
         if (!characteristic || !self.isConnected)
         {
             NSLog(@">> WriteValue -> invalid call");
-            return false;
+            return [NSError errorWithDomain:CBErrorDomain code:CBErrorUnknown userInfo:0]; //TODO
         }
         
         NSLog(@">> WriteValue");
@@ -220,9 +285,9 @@ static NSError *bluetoothDisabledError = [NSError errorWithDomain:[NSString stri
         {
             [self reportRequestResult:nil];
         }
-        return true;
+        return (NSError *)nil;
     }
- withCompletionHandler:completionHandler];
+     completionHandler:completionHandler];
 }
 
 - (void)queueSetNotifyValueForCharacteristic:(CBCharacteristic *)characteristic
@@ -235,15 +300,15 @@ static NSError *bluetoothDisabledError = [NSError errorWithDomain:[NSString stri
         if (!characteristic || !valueChangedHandler || !self.isConnected)
         {
             NSLog(@">> SetNotifyValueForCharacteristic -> invalid call");
-            return false;
+            return [NSError errorWithDomain:CBErrorDomain code:CBErrorUnknown userInfo:0]; //TODO
         }
         
         NSLog(@">> SetNotifyValueForCharacteristic");
         [self->_valueChangedHandlers setObject:valueChangedHandler forKey:characteristic];
         [self->_peripheral setNotifyValue:valueChangedHandler != nil forCharacteristic:characteristic];
-        return true;
+        return (NSError *)nil;
     }
- withCompletionHandler:completionHandler];
+     completionHandler:completionHandler];
 }
 
 //
@@ -251,16 +316,23 @@ static NSError *bluetoothDisabledError = [NSError errorWithDomain:[NSString stri
 //
 
 // completionHandler can be nil
-- (void)queueRequest:(bool (^)())requestBlock withCompletionHandler:(void (^)(NSError *error))completionHandler
+- (void)queueRequest:(NSError *(^)())requestBlock completionHandler:(void (^)(NSError *error))completionHandler
 {
-    NSAssert(requestBlock != nil, @"Nil operation block");
+    NSAssert(requestBlock, @"Nil operation block");
     
     dispatch_async(_queue, ^{
-        [self->_pendingRequests addObject:requestBlock];
-        [self->_completionHandlers addObject:completionHandler];
+        bool runNow = false;
+        @synchronized (self->_pendingRequests)
+        {
+            // Queue request and completion handler
+            [self->_pendingRequests addObject:requestBlock];
+            [self->_completionHandlers addObject:completionHandler];
+            
+            // Process request immediately if queue was empty
+            runNow =  self->_completionHandlers.count == 1;
+        }
         
-        // Run operation if queue was empty
-        if (self->_completionHandlers.count == 1)
+        if (runNow)
         {
             [self runNextRequest];
         }
@@ -269,28 +341,25 @@ static NSError *bluetoothDisabledError = [NSError errorWithDomain:[NSString stri
 
 - (void)runNextRequest
 {
-    if (_pendingRequests.count > 0)
+    NSError *(^requestBlock)() = nil;
+    @synchronized (_pendingRequests)
     {
-        NSLog(@">> runNextRequest");
-        
-        bool (^block)() = _pendingRequests[0];
-        [_pendingRequests removeObjectAtIndex:0];
-        
-        if (!block()) // Block can't be nil
+        if (_pendingRequests.count > 0)
         {
-            NSError *error;
-            if (self.isConnected)
-            {
-                error = nullAttributeError;
-            }
-            else if (_centralDelegate.isBluetoothOn)
-            {
-                error = notConnectedError;
-            }
-            else
-            {
-                error = bluetoothDisabledError;
-            }
+            NSLog(@">> runNextRequest");
+            
+            requestBlock = _pendingRequests[0];
+            [_pendingRequests removeObjectAtIndex:0];
+            
+            assert(requestBlock);
+        }
+    }
+    
+    if (requestBlock)
+    {
+        NSError * error = requestBlock();
+        if (error)
+        {
             [self reportRequestResult:error];
         }
     }
@@ -305,44 +374,53 @@ static NSError *bluetoothDisabledError = [NSError errorWithDomain:[NSString stri
 // Should always be called on the queue
 - (void)reportRequestResult:(NSError *)error clearPendingRequests:(bool)clearPendingRequests
 {
-    NSAssert(clearPendingRequests || (_completionHandlers.count > 0), @"Empty _completionHandlers");
-    if (_completionHandlers.count > 0)
+    void (^handler)(NSError *error) = nil;
+    
+    @synchronized (_pendingRequests)
     {
-        NSLog(@">> reportRequestResult %@", [error localizedDescription]);
+        NSAssert(clearPendingRequests || (_completionHandlers.count > 0), @"Empty _completionHandlers");
         
-        void (^handler)(NSError *error) = _completionHandlers[0];
-        if (clearPendingRequests)
+        if (_completionHandlers.count > 0)
         {
-            [_pendingRequests removeAllObjects];
-            [_completionHandlers removeAllObjects];
+            NSLog(@">> reportRequestResult %@", [error localizedDescription]);
+            
+            handler = _completionHandlers[0];
+            if (clearPendingRequests)
+            {
+                [_pendingRequests removeAllObjects];
+                [_completionHandlers removeAllObjects];
+            }
+            else
+            {
+                [_completionHandlers removeObjectAtIndex:0];
+            }
+        }
+        else if (clearPendingRequests)
+        {
+            if (_pendingRequests.count > 0)
+            {
+                NSLog(@">> _pendingRequests not empty!!");
+                [_pendingRequests removeAllObjects]; // Should be empty anyways
+            }
         }
         else
         {
-            [_completionHandlers removeObjectAtIndex:0];
+            NSLog(@">> _completionHandlers empty!!");
         }
-        
-        // Handler can be nil
-        if (handler)
-        {
-            handler(error);
-        }
-        
-        [self runNextRequest];
     }
-    else if (clearPendingRequests)
+    
+    if (handler)
     {
-        NSLog(@">> _pendingRequests not empty!!");
-        [_pendingRequests removeAllObjects]; // Should be empty anyways
+        handler(error);
     }
-    else
-    {
-        NSLog(@">> _completionHandlers empty!!");
-    }
+    
+    [self runNextRequest];
 }
 
 - (void)disconnectForDiscoveryError:(PXBlePeripheralConnectionEventReason)reason
 {
     NSAssert(!_discoveryDisconnectReason, @"_discoveryDisconnectReason already set");
+    
     _discoveryDisconnectReason = reason;
     [_centralDelegate.centralManager cancelPeripheralConnection:_peripheral];
 }
@@ -397,13 +475,14 @@ static NSError *bluetoothDisabledError = [NSError errorWithDomain:[NSString stri
     }
     else
     {
-        _discoveringServicesCounter -= 1;
+        assert(_discoveringServicesCounter > 0);
+        --_discoveringServicesCounter;
         if (_discoveringServicesCounter == 0)
         {
             // Notify connected when characteristics are discovered for all services
             // We must assume that each service will at least report one characteristic
             [self reportRequestResult:error];
-            if (_connectionEventHandler != nil)
+            if (_connectionEventHandler)
             {
                 _connectionEventHandler(PXBlePeripheralConnectionEventReady, PXBlePeripheralConnectionEventReasonSuccess);
             }
@@ -419,7 +498,7 @@ static NSError *bluetoothDisabledError = [NSError errorWithDomain:[NSString stri
 {
     NSLog(@">> didUpdateValueForCharacteristic with error %@", error);
     void (^handler)(CBCharacteristic *characteristic, NSError *error) = [_valueChangedHandlers objectForKey:characteristic];
-    if (handler != nil)
+    if (handler)
     {
         handler(characteristic, error);
     }

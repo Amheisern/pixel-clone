@@ -7,12 +7,12 @@
 typedef NS_ENUM(NSInteger, PXBlePeripheralConnectionEventReason)
 {
     PXBlePeripheralConnectionEventReasonUnknown = -1,
-    PXBlePeripheralConnectionEventReasonSuccess,
-    PXBlePeripheralConnectionEventReasonUnused1,
-    PXBlePeripheralConnectionEventReasonUnused2,
-    PXBlePeripheralConnectionEventReasonUnreachable,
+    PXBlePeripheralConnectionEventReasonSuccess = 0,
+    PXBlePeripheralConnectionEventReasonCanceled,
     PXBlePeripheralConnectionEventReasonNotSupported,
-    PXBlePeripheralConnectionEventReasonCancelled,
+    PXBlePeripheralConnectionEventReasonTimeout,
+    PXBlePeripheralConnectionEventReasonLinkLoss,
+    PXBlePeripheralConnectionEventReasonAdpaterOff,
 };
 
 // We can't find any reliable information about the thread safety of CoreBluetooth APIs
@@ -33,12 +33,14 @@ typedef NS_ENUM(NSInteger, PXBlePeripheralConnectionEventReason)
     dispatch_queue_t _queue;
     PXBleCentralManagerDelegate *_centralDelegate;
     CBPeripheral *_peripheral;
+    bool _connectInProgress;
+    bool _disconnectInProgress;
     void (^_connectionEventHandler)(PXBlePeripheralConnectionEvent connectionEvent, PXBlePeripheralConnectionEventReason reason);
     NSArray<CBUUID *> *_requiredServices;
     NSUInteger _discoveringServicesCounter;
     PXBlePeripheralConnectionEventReason _discoveryDisconnectReason;
     int _rssi;
-    NSMutableArray<bool (^)()> *_pendingRequests;
+    NSMutableArray<NSError *(^)()> *_pendingRequests;
     NSMutableArray<void (^)(NSError *error)> *_completionHandlers;
     NSMapTable<CBCharacteristic *, void (^)(CBCharacteristic *characteristic, NSError *error)> *_valueChangedHandlers;
 }
@@ -55,6 +57,8 @@ typedef NS_ENUM(NSInteger, PXBlePeripheralConnectionEventReason)
 - (instancetype)initWithPeripheral:(CBPeripheral *)peripheral
             centralManagerDelegate:(PXBleCentralManagerDelegate *)centralManagerDelegate
     connectionStatusChangedHandler:(void (^)(PXBlePeripheralConnectionEvent connectionEvent, PXBlePeripheralConnectionEventReason reason))connectionEventHandler;
+
+- (void)cancelQueue;
 
 - (void)queueConnectWithServices:(NSArray<CBUUID *> *)services
                completionHandler:(void (^)(NSError *error))completionHandler;

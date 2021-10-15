@@ -36,7 +36,8 @@ namespace Systemic.Pixels.Unity.BluetoothLE
             RequestStatus.Success => null,
             RequestStatus.InProgress => "Operation in progress",
             RequestStatus.Canceled => "Operation canceled",
-            RequestStatus.InvalidCall => "Invalid operation",
+            RequestStatus.InvalidPeripheral => "Invalid peripheral",
+            RequestStatus.InvalidCall => "Invalid call",
             RequestStatus.InvalidParameters => "Invalid parameters",
             RequestStatus.NotSupported => "Operation not supported",
             RequestStatus.ProtocolError => "GATT protocol error",
@@ -47,11 +48,37 @@ namespace Systemic.Pixels.Unity.BluetoothLE
 
         public object Current => null;
 
-        internal RequestEnumerator(Operation operation, float timeoutSec, Action<NativeRequestResultHandler> action)
+        protected PeripheralHandle Peripheral { get; }
+
+        internal RequestEnumerator(
+            Operation operation,
+            PeripheralHandle peripheralHandle,
+            float timeoutSec,
+            Action<PeripheralHandle, NativeRequestResultHandler> action)
+            : this(operation, peripheralHandle, timeoutSec)
         {
+            if (action == null) throw new ArgumentNullException(nameof(action));
+
             Operation = operation;
             _timeout = timeoutSec == 0 ? 0 : Time.realtimeSinceStartupAsDouble + timeoutSec;
-            action?.Invoke(SetResult);
+            if (Peripheral.IsValid)
+            {
+                action?.Invoke(Peripheral, SetResult);
+            }
+            else
+            {
+                SetResult(RequestStatus.InvalidPeripheral);
+            }
+        }
+
+        protected RequestEnumerator(
+            Operation operation,
+            PeripheralHandle peripheralHandle,
+            float timeoutSec)
+        {
+            Operation = operation;
+            Peripheral = peripheralHandle;
+            _timeout = timeoutSec == 0 ? 0 : Time.realtimeSinceStartupAsDouble + timeoutSec;
         }
 
         protected void SetResult(RequestStatus status)
@@ -88,26 +115,43 @@ namespace Systemic.Pixels.Unity.BluetoothLE
     {
         public T Value { get; private set; }
 
-        public ValueRequestEnumerator(Operation operation, float timeoutSec, Action<NativeValueRequestResultHandler<T>> action)
-            : base(operation, timeoutSec, null)
+        public ValueRequestEnumerator(
+            Operation operation,
+            PeripheralHandle peripheralHandle,
+            float timeoutSec,
+            Action<PeripheralHandle, NativeValueRequestResultHandler<T>> action)
+            : base(operation, peripheralHandle, timeoutSec)
         {
-            action((value, error) =>
+            if (action == null) throw new ArgumentNullException(nameof(action));
+
+            if (Peripheral.IsValid)
             {
-                Value = value;
-                SetResult(error);
-            });
+                action(Peripheral, (value, error) =>
+                {
+                    Value = value;
+                    SetResult(error);
+                });
+            }
+            else
+            {
+                SetResult(RequestStatus.InvalidPeripheral);
+            }
         }
     }
 
     public class ConnectRequestEnumerator : RequestEnumerator
     {
-        PeripheralHandle _peripheral;
         DisconnectRequestEnumerator _disconnect;
+        Action _onTimeoutDisconnect;
 
-        public ConnectRequestEnumerator(PeripheralHandle peripheral, float timeoutSec, Action<NativeRequestResultHandler> action)
-            : base(Operation.ConnectPeripheral, timeoutSec, action)
+        public ConnectRequestEnumerator(
+            PeripheralHandle peripheral,
+            float timeoutSec,
+            Action<PeripheralHandle, NativeRequestResultHandler> action,
+            Action onTimeoutDisconnect)
+            : base(Operation.ConnectPeripheral, peripheral, timeoutSec, action)
         {
-            _peripheral = peripheral;
+            _onTimeoutDisconnect = onTimeoutDisconnect;
         }
 
         public override bool MoveNext()
@@ -119,10 +163,12 @@ namespace Systemic.Pixels.Unity.BluetoothLE
                 done = !base.MoveNext();
 
                 // Did we fail with a timeout?
-                if (done && IsTimeout && _peripheral.IsValid)
+                if (done && IsTimeout && Peripheral.IsValid)
                 {
+                    _onTimeoutDisconnect?.Invoke();
+
                     // Cancel connection attempt
-                    _disconnect = new DisconnectRequestEnumerator(_peripheral);
+                    _disconnect = new DisconnectRequestEnumerator(Peripheral);
                     done = !_disconnect.MoveNext();
                 }
             }
@@ -137,13 +183,19 @@ namespace Systemic.Pixels.Unity.BluetoothLE
 
     public class DisconnectRequestEnumerator : RequestEnumerator
     {
-        PeripheralHandle _peripheral;
+        bool _released;
 
         public DisconnectRequestEnumerator(PeripheralHandle peripheral)
-            : base(Operation.DisconnectPeripheral, 0, null)
+            : base(Operation.DisconnectPeripheral, peripheral, 0)
         {
-            _peripheral = peripheral;
-            NativeInterface.DisconnectPeripheral(peripheral, SetResult);
+            if (Peripheral.IsValid)
+            {
+                NativeInterface.DisconnectPeripheral(peripheral, SetResult);
+            }
+            else
+            {
+                SetResult(RequestStatus.InvalidPeripheral);
+            }
         }
 
         public override bool MoveNext()
@@ -151,11 +203,11 @@ namespace Systemic.Pixels.Unity.BluetoothLE
             bool done = !base.MoveNext();
 
             // Are we done with the disconnect?
-            if (done && _peripheral.IsValid)
+            if (done && Peripheral.IsValid && (!_released))
             {
-                // Release peripheral no matter what
-                NativeInterface.ReleasePeripheral(_peripheral);
-                _peripheral = new PeripheralHandle();
+                // Release peripheral even if the disconnect might have failed
+                NativeInterface.ReleasePeripheral(Peripheral);
+                _released = true;
             }
 
             return !done;

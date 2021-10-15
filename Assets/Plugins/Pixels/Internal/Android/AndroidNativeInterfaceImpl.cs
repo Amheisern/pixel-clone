@@ -4,7 +4,7 @@ using UnityEngine.Android;
 
 namespace Systemic.Pixels.Unity.BluetoothLE.Internal.Android
 {
-    public enum AndroidRequestStatus : int
+    internal enum AndroidRequestStatus : int
     {
         // From android.bluetooth.BluetoothGatt 
         GATT_SUCCESS = 0,                   // A GATT operation completed successfully
@@ -18,6 +18,25 @@ namespace Systemic.Pixels.Unity.BluetoothLE.Internal.Android
         GATT_ERROR = 133,                   // (0x85) Generic error
         GATT_CONNECTION_CONGESTED = 143,    // (0x8f) A remote device connection is congested.
         GATT_FAILURE = 257,                 // (0x101) A GATT operation failed, errors other than the above
+
+        // Other GATT errors not in the Android doc
+        GATT_InvalidHandle = 1,
+        //GATT_ReadNotPermitted = 2,
+        //GATT_WriteNotPermitted = 3,
+        GATT_InvalidPdu = 4,
+        //GATT_InsufficientAuthentication = 5,
+        //GATT_RequestNotSupported = 6,
+        //GATT_InvalidOffset = 7,
+        GATT_InsufficientAuthorization = 8,
+        GATT_PrepareQueueFull = 9,
+        GATT_AttributeNotFound = 10,
+        GATT_AttributeNotLong = 11,
+        GATT_InsufficientEncryptionKeySize = 12,
+        //GATT_InvalidAttributeValueLength = 13,
+        GATT_UnlikelyError = 14,
+        //GATT_InsufficientEncryption = 15,
+        GATT_UnsupportedGroupType = 16,
+        GATT_InsufficientResources = 17,
 
         // From Nordic's FailCallback
         REASON_DEVICE_DISCONNECTED = -1,
@@ -33,7 +52,7 @@ namespace Systemic.Pixels.Unity.BluetoothLE.Internal.Android
         REASON_REQUEST_INVALID = -1000000,
     }
 
-    public enum AndroidConnectionEventReason
+    internal enum AndroidConnectionEventReason
     {
         REASON_UNKNOWN = -1,
         REASON_SUCCESS = 0,             // The disconnection was initiated by the user
@@ -47,24 +66,28 @@ namespace Systemic.Pixels.Unity.BluetoothLE.Internal.Android
         REASON_TIMEOUT = 10,            // The connection timed out
     }
 
-    sealed class AndroidNativeInterfaceImpl : INativeInterfaceImpl
+    internal sealed class AndroidNativeInterfaceImpl : INativeInterfaceImpl
     {
-        sealed class NativeBluetoothDevice : ScannedPeripheral.ISystemDevice, IDisposable
+        sealed class NativeBluetoothDevice : INativeDevice, IDisposable
         {
-            public NativeBluetoothDevice(AndroidJavaObject device) => Device = device;
+            public AndroidJavaObject JavaDevice { get; private set; }
 
-            public AndroidJavaObject Device { get; private set; }
+            public bool IsValid => JavaDevice != null;
 
-            public void Dispose() { Device = null; }
+            public NativeBluetoothDevice(AndroidJavaObject device) { JavaDevice = device; }
+
+            public void Dispose() { JavaDevice = null; }
         }
 
-        sealed class NativePeripheral : PeripheralHandle.INativePeripheral, IDisposable
+        sealed class NativePeripheral : INativePeripheral, IDisposable
         {
-            public NativePeripheral(AndroidJavaObject client) => Client = client;
+            public AndroidJavaObject JavaPeripheral { get; private set; }
 
-            public AndroidJavaObject Client { get; private set; }
+            public bool IsValid => JavaPeripheral != null;
 
-            public void Dispose() { Client = null; }
+            public NativePeripheral(AndroidJavaObject peripheral) { JavaPeripheral = peripheral; }
+
+            public void Dispose() { JavaPeripheral = null; }
         }
 
         readonly AndroidJavaClass _scannerClass = new AndroidJavaClass("com.systemic.pixels.Scanner");
@@ -125,23 +148,28 @@ namespace Systemic.Pixels.Unity.BluetoothLE.Internal.Android
             }
         }
 
-        public PeripheralHandle CreatePeripheral(ScannedPeripheral peripheral, NativePeripheralConnectionEventHandler onConnectionEvent)
+        public PeripheralHandle CreatePeripheral(IScannedPeripheral scannedPeripheral, NativePeripheralConnectionEventHandler onConnectionEvent)
         {
-            var client = new AndroidJavaObject(
-                "com.systemic.pixels.Peripheral",
-                GetDevice(peripheral),
-                new ConnectionObserver(onConnectionEvent));
-            return new PeripheralHandle(new NativePeripheral(client));
+            AndroidJavaObject javaPeripheral = null;
+            var device = ((NativeBluetoothDevice)scannedPeripheral.NativeDevice)?.JavaDevice;
+            if (device != null)
+            {
+                javaPeripheral = new AndroidJavaObject(
+                    "com.systemic.pixels.Peripheral",
+                    device,
+                    new ConnectionObserver(onConnectionEvent));
+            }
+            return new PeripheralHandle(javaPeripheral == null ? null : new NativePeripheral(javaPeripheral));
         }
 
         public void ReleasePeripheral(PeripheralHandle peripheral)
         {
-            ((NativePeripheral)peripheral.SystemClient).Dispose();
+            ((NativePeripheral)peripheral.NativePeripheral).Dispose();
         }
 
         public void ConnectPeripheral(PeripheralHandle peripheral, string requiredServicesUuids, bool autoConnect, NativeRequestResultHandler onResult)
         {
-            GetClient(peripheral).Call(
+            GetJavaPeripheral(peripheral, onResult)?.Call(
                 "connect",
                 requiredServicesUuids,
                 autoConnect,
@@ -150,24 +178,24 @@ namespace Systemic.Pixels.Unity.BluetoothLE.Internal.Android
 
         public void DisconnectPeripheral(PeripheralHandle peripheral, NativeRequestResultHandler onResult)
         {
-            GetClient(peripheral).Call(
+            GetJavaPeripheral(peripheral, onResult)?.Call(
                 "disconnect",
                 new RequestCallback(Operation.DisconnectPeripheral, onResult));
         }
 
         public string GetPeripheralName(PeripheralHandle peripheral)
         {
-            return GetClient(peripheral).Call<string>("getName");
+            return GetJavaPeripheral(peripheral)?.Call<string>("getName");
         }
 
         public int GetPeripheralMtu(PeripheralHandle peripheral)
         {
-            return GetClient(peripheral).Call<int>("getMtu");
+            return GetJavaPeripheral(peripheral)?.Call<int>("getMtu") ?? 0;
         }
 
         public void RequestPeripheralMtu(PeripheralHandle peripheral, int mtu, NativeValueRequestResultHandler<int> onMtuResult)
         {
-            GetClient(peripheral).Call(
+            GetJavaPeripheral(peripheral, status => onMtuResult(0, status))?.Call(
                 "requestMtu",
                 mtu,
                 new MtuRequestCallback(onMtuResult));
@@ -175,26 +203,26 @@ namespace Systemic.Pixels.Unity.BluetoothLE.Internal.Android
 
         public void ReadPeripheralRssi(PeripheralHandle peripheral, NativeValueRequestResultHandler<int> onRssiRead)
         {
-            GetClient(peripheral).Call(
+            GetJavaPeripheral(peripheral, status => onRssiRead(int.MinValue, status))?.Call(
                 "readRssi",
                 new RssiRequestCallback(onRssiRead));
         }
 
         public string GetPeripheralDiscoveredServices(PeripheralHandle peripheral)
         {
-            return GetClient(peripheral).Call<string>("getDiscoveredServices");
+            return GetJavaPeripheral(peripheral)?.Call<string>("getDiscoveredServices");
         }
 
         public string GetPeripheralServiceCharacteristics(PeripheralHandle peripheral, string serviceUuid)
         {
-            return GetClient(peripheral).Call<string>(
+            return GetJavaPeripheral(peripheral)?.Call<string>(
                 "getServiceCharacteristics",
                 serviceUuid);
         }
 
         public CharacteristicProperties GetCharacteristicProperties(PeripheralHandle peripheral, string serviceUuid, string characteristicUuid, uint instanceIndex)
         {
-            return (CharacteristicProperties)GetClient(peripheral).Call<int>(
+            return (CharacteristicProperties)GetJavaPeripheral(peripheral)?.Call<int>(
                 "getCharacteristicProperties",
                 serviceUuid,
                 characteristicUuid,
@@ -203,7 +231,7 @@ namespace Systemic.Pixels.Unity.BluetoothLE.Internal.Android
 
         public void ReadCharacteristic(PeripheralHandle peripheral, string serviceUuid, string characteristicUuid, uint instanceIndex, NativeValueChangedHandler onValueChanged, NativeRequestResultHandler onResult)
         {
-            GetClient(peripheral).Call(
+            GetJavaPeripheral(peripheral, onResult)?.Call(
                 "readCharacteristic",
                 serviceUuid,
                 characteristicUuid,
@@ -214,7 +242,7 @@ namespace Systemic.Pixels.Unity.BluetoothLE.Internal.Android
 
         public void WriteCharacteristic(PeripheralHandle peripheral, string serviceUuid, string characteristicUuid, uint instanceIndex, byte[] data, bool withoutResponse, NativeRequestResultHandler onResult)
         {
-            GetClient(peripheral).Call(
+            GetJavaPeripheral(peripheral, onResult)?.Call(
                 "writeCharacteristic",
                 serviceUuid,
                 characteristicUuid,
@@ -227,7 +255,7 @@ namespace Systemic.Pixels.Unity.BluetoothLE.Internal.Android
         // No notification with error on Android
         public void SubscribeCharacteristic(PeripheralHandle peripheral, string serviceUuid, string characteristicUuid, uint instanceIndex, NativeValueChangedHandler onValueChanged, NativeRequestResultHandler onResult)
         {
-            GetClient(peripheral).Call(
+            GetJavaPeripheral(peripheral, onResult)?.Call(
                 "subscribeCharacteristic",
                 serviceUuid,
                 characteristicUuid,
@@ -238,7 +266,7 @@ namespace Systemic.Pixels.Unity.BluetoothLE.Internal.Android
 
         public void UnsubscribeCharacteristic(PeripheralHandle peripheral, string serviceUuid, string characteristicUuid, uint instanceIndex, NativeRequestResultHandler onResult)
         {
-            GetClient(peripheral).Call(
+            GetJavaPeripheral(peripheral, onResult)?.Call(
                 "unsubscribeCharacteristic",
                 serviceUuid,
                 characteristicUuid,
@@ -246,33 +274,36 @@ namespace Systemic.Pixels.Unity.BluetoothLE.Internal.Android
                 new RequestCallback(Operation.UnsubscribeCharacteristic, onResult));
         }
 
-        AndroidJavaObject GetDevice(ScannedPeripheral scannedPeripheral) => ((NativeBluetoothDevice)scannedPeripheral.SystemDevice).Device;
-
-        AndroidJavaObject GetClient(PeripheralHandle peripheralHandle) => ((NativePeripheral)peripheralHandle.SystemClient).Client;
+        AndroidJavaObject GetJavaPeripheral(PeripheralHandle peripheralHandle, NativeRequestResultHandler onResult = null)
+        {
+            var peripheral = ((NativePeripheral)peripheralHandle.NativePeripheral).JavaPeripheral;
+            if (peripheral == null)
+            {
+                onResult?.Invoke(RequestStatus.InvalidPeripheral);
+            }
+            return peripheral;
+        }
 
         public static RequestStatus ToRequestStatus(int androidStatus)
         {
-            return androidStatus switch
+            if ((androidStatus > 0) && (androidStatus < 50))
+            {
+                return RequestStatus.ProtocolError;
+            }
+            else return androidStatus switch
             {
                 (int)AndroidRequestStatus.GATT_SUCCESS => RequestStatus.Success,
-                (int)AndroidRequestStatus.GATT_INSUFFICIENT_AUTHENTICATION => RequestStatus.ProtocolError,
-                (int)AndroidRequestStatus.GATT_READ_NOT_PERMITTED => RequestStatus.ProtocolError,
-                (int)AndroidRequestStatus.GATT_WRITE_NOT_PERMITTED => RequestStatus.ProtocolError,
-                (int)AndroidRequestStatus.GATT_REQUEST_NOT_SUPPORTED => RequestStatus.ProtocolError,
-                (int)AndroidRequestStatus.GATT_INVALID_OFFSET => RequestStatus.ProtocolError,
-                (int)AndroidRequestStatus.GATT_INVALID_ATTRIBUTE_LENGTH => RequestStatus.ProtocolError,
-                (int)AndroidRequestStatus.GATT_INSUFFICIENT_ENCRYPTION => RequestStatus.ProtocolError,
-                (int)AndroidRequestStatus.GATT_ERROR => RequestStatus.Error,
-                (int)AndroidRequestStatus.GATT_CONNECTION_CONGESTED => RequestStatus.Error,
-                (int)AndroidRequestStatus.GATT_FAILURE => RequestStatus.Error,
-                (int)AndroidRequestStatus.REASON_DEVICE_DISCONNECTED => RequestStatus.InvalidCall,
-                (int)AndroidRequestStatus.REASON_DEVICE_NOT_SUPPORTED => RequestStatus.Error,
+                //(int)AndroidRequestStatus.GATT_ERROR => RequestStatus.Error,
+                //(int)AndroidRequestStatus.GATT_CONNECTION_CONGESTED => RequestStatus.Error,
+                //(int)AndroidRequestStatus.GATT_FAILURE => RequestStatus.Error,
+                (int)AndroidRequestStatus.REASON_DEVICE_DISCONNECTED => RequestStatus.Disconnected,
+                //(int)AndroidRequestStatus.REASON_DEVICE_NOT_SUPPORTED => RequestStatus.Error,
                 (int)AndroidRequestStatus.REASON_NULL_ATTRIBUTE => RequestStatus.InvalidParameters,
-                (int)AndroidRequestStatus.REASON_REQUEST_FAILED => RequestStatus.Error,
+                //(int)AndroidRequestStatus.REASON_REQUEST_FAILED => RequestStatus.Error,
                 (int)AndroidRequestStatus.REASON_TIMEOUT => RequestStatus.Timeout,
-                (int)AndroidRequestStatus.REASON_VALIDATION => RequestStatus.Error,
+                //(int)AndroidRequestStatus.REASON_VALIDATION => RequestStatus.Error,
                 (int)AndroidRequestStatus.REASON_CANCELLED => RequestStatus.Canceled,
-                (int)AndroidRequestStatus.REASON_BLUETOOTH_DISABLED => RequestStatus.InvalidCall,
+                (int)AndroidRequestStatus.REASON_BLUETOOTH_DISABLED => RequestStatus.AdpaterOff,
                 (int)AndroidRequestStatus.REASON_REQUEST_INVALID => RequestStatus.InvalidCall,
                 _ => RequestStatus.Error
             };
@@ -282,7 +313,7 @@ namespace Systemic.Pixels.Unity.BluetoothLE.Internal.Android
         {
             return androidReason switch
             {
-                (int)AndroidConnectionEventReason.REASON_SUCCESS => ConnectionEventReason.Unknown,
+                (int)AndroidConnectionEventReason.REASON_SUCCESS => ConnectionEventReason.Success,
                 (int)AndroidConnectionEventReason.REASON_TERMINATE_LOCAL_HOST => ConnectionEventReason.AdpaterOff,
                 (int)AndroidConnectionEventReason.REASON_TERMINATE_PEER_USER => ConnectionEventReason.Peripheral,
                 (int)AndroidConnectionEventReason.REASON_LINK_LOSS => ConnectionEventReason.LinkLoss,

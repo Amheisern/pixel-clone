@@ -2,7 +2,7 @@
 
 namespace Systemic.Pixels.Unity.BluetoothLE.Internal.Android
 {
-    sealed class ConnectionObserver : AndroidJavaProxy
+	internal sealed class ConnectionObserver : AndroidJavaProxy
 	{
 		NativePeripheralConnectionEventHandler _connectionEventHandler;
 
@@ -42,8 +42,8 @@ namespace Systemic.Pixels.Unity.BluetoothLE.Internal.Android
 		 */
 		void onDeviceFailedToConnect(AndroidJavaObject device, int reason)
         {
-			Debug.Log($"ConnectionObserver ==> onDeviceFailedToConnect: {(ConnectionEventReason)reason}");
-			_connectionEventHandler?.Invoke(ConnectionEvent.FailedToConnect, (ConnectionEventReason)reason);
+			Debug.Log($"ConnectionObserver ==> onDeviceFailedToConnect: {(AndroidConnectionEventReason)reason}");
+			_connectionEventHandler?.Invoke(ConnectionEvent.FailedToConnect, AndroidNativeInterfaceImpl.ToConnectionEventReason(reason));
 		}
 
 		/**
@@ -79,8 +79,8 @@ namespace Systemic.Pixels.Unity.BluetoothLE.Internal.Android
 		 */
 		void onDeviceDisconnected(AndroidJavaObject device, int reason)
         {
-			Debug.Log($"ConnectionObserver ==> onDeviceDisconnected: {(ConnectionEventReason)reason}");
-			_connectionEventHandler?.Invoke(ConnectionEvent.Disconnected, (ConnectionEventReason)reason);
+			Debug.Log($"ConnectionObserver ==> onDeviceDisconnected: {(AndroidConnectionEventReason)reason}");
+			_connectionEventHandler?.Invoke(ConnectionEvent.Disconnected, AndroidNativeInterfaceImpl.ToConnectionEventReason(reason));
 		}
 	}
 }

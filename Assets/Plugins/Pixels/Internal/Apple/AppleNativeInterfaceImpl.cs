@@ -12,18 +12,23 @@ namespace Systemic.Pixels.Unity.BluetoothLE.Internal.Apple
 {
     internal sealed class AppleNativeInterfaceImpl : INativeInterfaceImpl
     {
-        sealed class NativeCBPeripheral : ScannedPeripheral.ISystemDevice
+        sealed class NativeCBPeripheral : INativeDevice
         {
-            public NativeCBPeripheral(string peripheralId) => PeripheralId = peripheralId;
-
             public string PeripheralId { get; }
+
+            public bool IsValid => PeripheralId != null;
+
+            public NativeCBPeripheral(string peripheralId) => PeripheralId = peripheralId;
         }
 
-        sealed class NativePxPeripheral : PeripheralHandle.INativePeripheral
+        sealed class NativePxPeripheral : INativePeripheral
         {
+            public string PeripheralId { get; }
+
+            public bool IsValid => PeripheralId != null;
+
             public NativePxPeripheral(string peripheralId) => PeripheralId = peripheralId;
 
-            public string PeripheralId { get; }
         }
 
         const string _libName =
@@ -38,9 +43,9 @@ namespace Systemic.Pixels.Unity.BluetoothLE.Internal.Apple
         delegate void CentralStateUpdateHandler(bool isAvailable);
         delegate void DiscoveredPeripheralHandler(string advertisementDataJson);
         delegate void PeripheralConnectionEventHandler(RequestIndex requestIndex, string peripheralId, int connectionEvent, int reason);
-        delegate void RequestStatusHandler(RequestIndex requestIndex, int errorCode, string errorMessage);
-        delegate void RssiReadHandler(RequestIndex requestIndex, int rssi, int errorCode, string errorMessage);
-        delegate void ValueChangedHandler(RequestIndex requestIndex, IntPtr data, UIntPtr length, int errorCode, string errorMessage);
+        delegate void RequestStatusHandler(RequestIndex requestIndex, int errorCode);
+        delegate void RssiReadHandler(RequestIndex requestIndex, int rssi, int errorCode);
+        delegate void ValueChangedHandler(RequestIndex requestIndex, IntPtr data, UIntPtr length, int errorCode);
 
         [DllImport(_libName)]
         private static extern bool pxBleInitialize(CentralStateUpdateHandler onCentralStateUpdate);
@@ -153,7 +158,7 @@ namespace Systemic.Pixels.Unity.BluetoothLE.Internal.Apple
         }
 
         [MonoPInvokeCallback(typeof(RequestStatusHandler))]
-        static void OnRequestStatus(RequestIndex requestIndex, int errorCode, string errorMessage)
+        static void OnRequestStatus(RequestIndex requestIndex, int errorCode)
         {
             try
             {
@@ -181,7 +186,7 @@ namespace Systemic.Pixels.Unity.BluetoothLE.Internal.Apple
         }
 
         [MonoPInvokeCallback(typeof(RssiReadHandler))]
-        static void OnRssiReadHandler(RequestIndex requestIndex, int rssi, int errorCode, string errorMessage)
+        static void OnRssiReadHandler(RequestIndex requestIndex, int rssi, int errorCode)
         {
             try
             {
@@ -206,7 +211,7 @@ namespace Systemic.Pixels.Unity.BluetoothLE.Internal.Apple
         }
 
         [MonoPInvokeCallback(typeof(ValueChangedHandler))]
-        static void OnValueChangedHandler(RequestIndex requestIndex, IntPtr data, UIntPtr length, int errorCode, string errorMessage)
+        static void OnValueChangedHandler(RequestIndex requestIndex, IntPtr data, UIntPtr length, int errorCode)
         {
             try
             {
@@ -267,7 +272,7 @@ namespace Systemic.Pixels.Unity.BluetoothLE.Internal.Apple
             return new PeripheralHandle();
         }
 
-        public PeripheralHandle CreatePeripheral(ScannedPeripheral peripheral, NativePeripheralConnectionEventHandler onConnectionEvent)
+        public PeripheralHandle CreatePeripheral(IScannedPeripheral scannedPeripheral, NativePeripheralConnectionEventHandler onConnectionEvent)
         {
             var requestIndex = Interlocked.Increment(ref _requestIndex);
             lock (_onConnectionEventHandlers)
@@ -275,7 +280,7 @@ namespace Systemic.Pixels.Unity.BluetoothLE.Internal.Apple
                 _onConnectionEventHandlers.Add(requestIndex, onConnectionEvent);
             }
 
-            string peripheralId = GetPeripheralId(peripheral);
+            string peripheralId = GetPeripheralId(scannedPeripheral);
             bool success = pxBleCreatePeripheral(peripheralId, OnPeripheralConnectionStatusChanged, requestIndex);
             return new PeripheralHandle(success ? new NativePxPeripheral(peripheralId) : null);
         }
@@ -387,9 +392,15 @@ namespace Systemic.Pixels.Unity.BluetoothLE.Internal.Apple
             pxBleSetNotifyCharacteristic(GetPeripheralId(peripheral), serviceUuid, characteristicUuid, instanceIndex, null, OnRequestStatus, requestIndex);
         }
 
-        private string GetPeripheralId(ScannedPeripheral scannedPeripheral) => ((NativeCBPeripheral)scannedPeripheral.SystemDevice).PeripheralId;
+        private string GetPeripheralId(IScannedPeripheral scannedPeripheral)
+        {
+            return ((NativeCBPeripheral)scannedPeripheral.NativeDevice).PeripheralId;
+        }
 
-        private string GetPeripheralId(PeripheralHandle peripheralHandle) => ((NativePxPeripheral)peripheralHandle.SystemClient).PeripheralId;
+        private string GetPeripheralId(PeripheralHandle peripheralHandle)
+        {
+            return ((NativePxPeripheral)peripheralHandle.NativePeripheral).PeripheralId;
+        }
 
         private RequestIndex SetRequestHandler(NativeRequestResultHandler onResult)
         {
@@ -403,48 +414,69 @@ namespace Systemic.Pixels.Unity.BluetoothLE.Internal.Apple
 
         enum AppleBluetoothError : int
         {
-            CBErrorUnknown = 0, // An unknown error occurred.
-            CBErrorInvalidParameters = 1, // The specified parameters are invalid.
-            CBErrorInvalidHandle = 2, // The specified attribute handle is invalid.
-            CBErrorNotConnected = 3, // The device isn't currently connected.
-            CBErrorOutOfSpace = 4, // The device has run out of space to complete the intended operation.
-            CBErrorOperationCancelled = 5, // The error represents a canceled operation.
-            CBErrorConnectionTimeout = 6, // The connection timed out.
-            CBErrorPeripheralDisconnected = 7, // The peripheral disconnected.
-            CBErrorUUIDNotAllowed = 8, // The specified UUID isn't permitted.
-            CBErrorAlreadyAdvertising = 9, // The peripheral is already advertising.
-            CBErrorConnectionFailed = 10, // The connection failed.
-            CBErrorConnectionLimitReached = 11, // The device already has the maximum number of connections.
-            CBErrorUnknownDevice = 12, // The device is unknown.
-            CBErrorOperationNotSupported = 13, // The operation isn't supported.
+            CBErrorUnknown = -1,                // An unknown error occurred.
+            CBErrorInvalidParameters = -2,      // The specified parameters are invalid.
+            CBErrorInvalidHandle = -3,          // The specified attribute handle is invalid.
+            CBErrorNotConnected = -4,           // The device isn't currently connected.
+            CBErrorOutOfSpace = -5,             // The device has run out of space to complete the intended operation.
+            CBErrorOperationCancelled = -6,     // The error represents a canceled operation.
+            CBErrorConnectionTimeout = -7,      // The connection timed out.
+            CBErrorPeripheralDisconnected = -8, // The peripheral disconnected.
+            CBErrorUUIDNotAllowed = -9,         // The specified UUID isn't permitted.
+            CBErrorAlreadyAdvertising = -10,    // The peripheral is already advertising.
+            CBErrorConnectionFailed = -11,      // The connection failed.
+            CBErrorConnectionLimitReached = -12,// The device already has the maximum number of connections.
+            CBErrorUnknownDevice = -13,         // The device is unknown.
+            CBErrorOperationNotSupported = -14, // The operation isn't supported.
 
-            CBATTErrorSuccess = 0x00, // The ATT command or request successfully completed.
-            CBATTErrorInvalidHandle = 0x01, // The attribute handle is invalid on this peripheral.
-            CBATTErrorReadNotPermitted = 0x02, // The permissions prohibit reading the attribute?s value.
-            CBATTErrorWriteNotPermitted = 0x03, // The permissions prohibit writing the attribute?s value.
-            CBATTErrorInvalidPdu = 0x04, // The attribute Protocol Data Unit (PDU) is invalid.
-            CBATTErrorInsufficientAuthentication = 0x05, // Reading or writing the attribute?s value failed for lack of authentication.
-            CBATTErrorRequestNotSupported = 0x06, // The attribute server doesn't support the request received from the client.
-            CBATTErrorInvalidOffset = 0x07, // The specified offset value was past the end of the attribute?s value.
-            CBATTErrorInsufficientAuthorization = 0x08, // Reading or writing the attribute?s value failed for lack of authorization.
-            CBATTErrorPrepareQueueFull = 0x09, // The prepare queue is full, as a result of there being too many write requests in the queue.
-            CBATTErrorAttributeNotFound = 0x0A, // The attribute wasn't found within the specified attribute handle range.
-            CBATTErrorAttributeNotLong = 0x0B, // The ATT read blob request can?t read or write the attribute.
+            CBATTErrorSuccess = 0x00,                       // The ATT command or request successfully completed.
+            CBATTErrorInvalidHandle = 0x01,                 // The attribute handle is invalid on this peripheral.
+            CBATTErrorReadNotPermitted = 0x02,              // The permissions prohibit reading the attribute?s value.
+            CBATTErrorWriteNotPermitted = 0x03,             // The permissions prohibit writing the attribute?s value.
+            CBATTErrorInvalidPdu = 0x04,                    // The attribute Protocol Data Unit (PDU) is invalid.
+            CBATTErrorInsufficientAuthentication = 0x05,    // Reading or writing the attribute?s value failed for lack of authentication.
+            CBATTErrorRequestNotSupported = 0x06,           // The attribute server doesn't support the request received from the client.
+            CBATTErrorInvalidOffset = 0x07,                 // The specified offset value was past the end of the attribute?s value.
+            CBATTErrorInsufficientAuthorization = 0x08,     // Reading or writing the attribute?s value failed for lack of authorization.
+            CBATTErrorPrepareQueueFull = 0x09,              // The prepare queue is full, as a result of there being too many write requests in the queue.
+            CBATTErrorAttributeNotFound = 0x0A,             // The attribute wasn't found within the specified attribute handle range.
+            CBATTErrorAttributeNotLong = 0x0B,              // The ATT read blob request can?t read or write the attribute.
             CBATTErrorInsufficientEncryptionKeySize = 0x0C, // The encryption key size used for encrypting this link is insufficient.
-            CBATTErrorInvalidAttributeValueLength = 0x0D, // The length of the attribute?s value is invalid for the intended operation.
-            CBATTErrorUnlikelyError = 0x0E, // The ATT request encountered an unlikely error and wasn't completed.
-            CBATTErrorInsufficientEncryption = 0x0F, // Reading or writing the attribute?s value failed for lack of encryption.
-            CBATTErrorUnsupportedGroupType = 0x10, // The attribute type isn't a supported grouping attribute as defined by a higher-layer specification.
-            CBATTErrorInsufficientResources = 0x11, // Resources are insufficient to complete the ATT request.
+            CBATTErrorInvalidAttributeValueLength = 0x0D,   // The length of the attribute?s value is invalid for the intended operation.
+            CBATTErrorUnlikelyError = 0x0E,                 // The ATT request encountered an unlikely error and wasn't completed.
+            CBATTErrorInsufficientEncryption = 0x0F,        // Reading or writing the attribute?s value failed for lack of encryption.
+            CBATTErrorUnsupportedGroupType = 0x10,          // The attribute type isn't a supported grouping attribute as defined by a higher-layer specification.
+            CBATTErrorInsufficientResources = 0x11,         // Resources are insufficient to complete the ATT request.
+
+            UnknownError = unchecked((int)0x80000000),
+            InvalidPeripheralId = unchecked((int)0x80000001),
         }
 
-        public static RequestStatus ToRequestStatus(int androidStatus)
+        static RequestStatus ToRequestStatus(int errorCode)
         {
-            return androidStatus switch
+            if (errorCode > 0)
             {
-                //TODO Apple CoreBluetooth error mapping
-                (int)AppleBluetoothError.CBATTErrorSuccess => RequestStatus.Success,
-                _ => RequestStatus.Error
+                return RequestStatus.ProtocolError;
+            }
+            else return errorCode switch
+            {
+                0 => RequestStatus.Success,
+                //(int)AppleBluetoothError.UnknownError => RequestStatus.Error,
+                (int)AppleBluetoothError.InvalidPeripheralId => RequestStatus.InvalidPeripheral,
+                (int)AppleBluetoothError.CBErrorInvalidParameters => RequestStatus.InvalidParameters,
+                (int)AppleBluetoothError.CBErrorInvalidHandle => RequestStatus.InvalidParameters,
+                (int)AppleBluetoothError.CBErrorNotConnected => RequestStatus.Disconnected,
+                //(int)AppleBluetoothError.CBErrorOutOfSpace => RequestStatus.Error,
+                (int)AppleBluetoothError.CBErrorOperationCancelled => RequestStatus.Canceled,
+                (int)AppleBluetoothError.CBErrorConnectionTimeout => RequestStatus.Timeout,
+                (int)AppleBluetoothError.CBErrorPeripheralDisconnected => RequestStatus.Disconnected,
+                //(int)AppleBluetoothError.CBErrorUUIDNotAllowed => RequestStatus.Error,
+                //(int)AppleBluetoothError.CBErrorAlreadyAdvertising => RequestStatus.Error,
+                //(int)AppleBluetoothError.CBErrorConnectionFailed => RequestStatus.Error,
+                //(int)AppleBluetoothError.CBErrorConnectionLimitReached => RequestStatus.Error,
+                //(int)AppleBluetoothError.CBErrorUnknownDevice => RequestStatus.Error,
+                (int)AppleBluetoothError.CBErrorOperationNotSupported => RequestStatus.NotSupported,
+                _ => RequestStatus.Error,
             };
         }
     }

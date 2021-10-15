@@ -7,14 +7,16 @@ namespace Systemic.Pixels.Unity.BluetoothLE.Internal.Windows
 {
     internal sealed class WinRTNativeInterfaceImpl : INativeInterfaceImpl
     {
-        sealed class NativeScannedPeripheral : ScannedPeripheral.ISystemDevice
+        sealed class NativeScannedPeripheral : INativeDevice
         {
-            public NativeScannedPeripheral(ulong bluetoothAddress) => BluetoothAddress = bluetoothAddress;
-
             public ulong BluetoothAddress { get; }
+
+            public bool IsValid => BluetoothAddress != 0;
+
+            public NativeScannedPeripheral(ulong bluetoothAddress) => BluetoothAddress = bluetoothAddress;
         }
 
-        sealed class NativePeripheral : PeripheralHandle.INativePeripheral
+        sealed class NativePeripheral : INativePeripheral
         {
             // Keep references to all callbacks so they are not reclaimed by the GC
             PeripheralConnectionEventHandler _onPeripheralConnectionStatusChanged;
@@ -29,6 +31,8 @@ namespace Systemic.Pixels.Unity.BluetoothLE.Internal.Windows
             public ulong BluetoothAddress { get; }
 
             public string Name { get; }
+
+            public bool IsValid => BluetoothAddress != 0;
 
             public void KeepRequestHandler(RequestStatusHandler onRequestStatus)
             {
@@ -145,8 +149,9 @@ namespace Systemic.Pixels.Unity.BluetoothLE.Internal.Windows
         [DllImport(_libName)]
         private static extern void pxBleSetNotifyCharacteristic(ulong peripheralId, string serviceUuid, string characteristicUuid, uint instanceIndex, ValueChangedHandler onValueChanged, RequestStatusHandler onRequestStatus);
 
-        static CentralStateUpdateHandler _onCentralStateUpdate;
-        static DiscoveredPeripheralHandler _onDiscoveredPeripheral;
+        // Keep a reference to state update and discovery callbacks so they are not reclaimed by the GC
+        private static CentralStateUpdateHandler _onCentralStateUpdate;
+        private static DiscoveredPeripheralHandler _onDiscoveredPeripheral;
 
         public bool Initialize(NativeBluetoothEventHandler onBluetoothEvent)
         {
@@ -211,14 +216,14 @@ namespace Systemic.Pixels.Unity.BluetoothLE.Internal.Windows
             return CreatePeripheral(bluetoothAddress, bluetoothAddress.ToString(), onConnectionEvent);
         }
 
-        public PeripheralHandle CreatePeripheral(ScannedPeripheral peripheral, NativePeripheralConnectionEventHandler onConnectionEvent)
+        public PeripheralHandle CreatePeripheral(IScannedPeripheral scannedPeripheral, NativePeripheralConnectionEventHandler onConnectionEvent)
         {
-            return CreatePeripheral(GetPeripheralAddress(peripheral), peripheral.Name, onConnectionEvent);
+            return CreatePeripheral(GetPeripheralAddress(scannedPeripheral), scannedPeripheral.Name, onConnectionEvent);
         }
 
         public void ReleasePeripheral(PeripheralHandle peripheral)
         {
-            var periph = (NativePeripheral)peripheral.SystemClient;
+            var periph = (NativePeripheral)peripheral.NativePeripheral;
             periph.Release();
             pxBleReleasePeripheral(GetPeripheralAddress(peripheral));
         }
@@ -231,7 +236,7 @@ namespace Systemic.Pixels.Unity.BluetoothLE.Internal.Windows
 
         public void DisconnectPeripheral(PeripheralHandle peripheral, NativeRequestResultHandler onResult)
         {
-            var periph = (NativePeripheral)peripheral.SystemClient;
+            var periph = (NativePeripheral)peripheral.NativePeripheral;
             periph.ForgetAllValueHandlers();
             pxBleDisconnectPeripheral(GetPeripheralAddress(peripheral),
                 GetRequestStatusHandler(Operation.DisconnectPeripheral, peripheral, onResult));
@@ -256,7 +261,7 @@ namespace Systemic.Pixels.Unity.BluetoothLE.Internal.Windows
         public void ReadPeripheralRssi(PeripheralHandle peripheral, NativeValueRequestResultHandler<int> onRssiRead)
         {
             // No support for reading RSSI of connected device with WinRT Bluetooth
-            onRssiRead(0, RequestStatus.NotSupported);
+            onRssiRead(int.MinValue, RequestStatus.NotSupported);
         }
 
         public string GetPeripheralDiscoveredServices(PeripheralHandle peripheral)
@@ -277,7 +282,7 @@ namespace Systemic.Pixels.Unity.BluetoothLE.Internal.Windows
         public void ReadCharacteristic(PeripheralHandle peripheral, string serviceUuid, string characteristicUuid, uint instanceIndex, NativeValueChangedHandler onValueChanged, NativeRequestResultHandler onResult)
         {
             var valueChangedHandler = GetValueChangedHandler(peripheral, onValueChanged);
-            var periph = (NativePeripheral)peripheral.SystemClient;
+            var periph = (NativePeripheral)peripheral.NativePeripheral;
             periph.KeepValueHandler(serviceUuid, characteristicUuid, instanceIndex, valueChangedHandler);
             pxBleReadCharacteristicValue(GetPeripheralAddress(peripheral), serviceUuid, characteristicUuid, instanceIndex, valueChangedHandler,
                 GetRequestStatusHandler(Operation.ReadCharacteristic, peripheral, onResult));
@@ -301,7 +306,7 @@ namespace Systemic.Pixels.Unity.BluetoothLE.Internal.Windows
         public void SubscribeCharacteristic(PeripheralHandle peripheral, string serviceUuid, string characteristicUuid, uint instanceIndex, NativeValueChangedHandler onValueChanged, NativeRequestResultHandler onResult)
         {
             var valueChangedHandler = GetValueChangedHandler(peripheral, onValueChanged);
-            var periph = (NativePeripheral)peripheral.SystemClient;
+            var periph = (NativePeripheral)peripheral.NativePeripheral;
             periph.KeepValueHandler(serviceUuid, characteristicUuid, instanceIndex, valueChangedHandler);
             pxBleSetNotifyCharacteristic(GetPeripheralAddress(peripheral), serviceUuid, characteristicUuid, instanceIndex, valueChangedHandler,
                 GetRequestStatusHandler(Operation.SubscribeCharacteristic, peripheral, onResult));
@@ -311,17 +316,23 @@ namespace Systemic.Pixels.Unity.BluetoothLE.Internal.Windows
         {
             pxBleSetNotifyCharacteristic(GetPeripheralAddress(peripheral), serviceUuid, characteristicUuid, instanceIndex, null,
                 GetRequestStatusHandler(Operation.UnsubscribeCharacteristic, peripheral, onResult));
-            var periph = (NativePeripheral)peripheral.SystemClient;
+            var periph = (NativePeripheral)peripheral.NativePeripheral;
             periph.ForgetValueHandler(serviceUuid, characteristicUuid, instanceIndex);
         }
 
-        private ulong GetPeripheralAddress(ScannedPeripheral scannedPeripheral) => ((NativeScannedPeripheral)scannedPeripheral.SystemDevice).BluetoothAddress;
+        private ulong GetPeripheralAddress(IScannedPeripheral scannedPeripheral)
+        {
+            return ((NativeScannedPeripheral)scannedPeripheral.NativeDevice).BluetoothAddress;
+        }
 
-        private ulong GetPeripheralAddress(PeripheralHandle peripheralHandle) => ((NativePeripheral)peripheralHandle.SystemClient).BluetoothAddress;
+        private ulong GetPeripheralAddress(PeripheralHandle peripheralHandle)
+        {
+            return ((NativePeripheral)peripheralHandle.NativePeripheral).BluetoothAddress;
+        }
 
         private RequestStatusHandler GetRequestStatusHandler(Operation operation, PeripheralHandle peripheral, NativeRequestResultHandler onResult)
         {
-            var periph = (NativePeripheral)peripheral.SystemClient;
+            var periph = (NativePeripheral)peripheral.NativePeripheral;
             RequestStatusHandler onRequestStatus = null;
             onRequestStatus = errorCode =>
             {
@@ -349,7 +360,7 @@ namespace Systemic.Pixels.Unity.BluetoothLE.Internal.Windows
 
         private ValueChangedHandler GetValueChangedHandler(PeripheralHandle peripheral, NativeValueChangedHandler onValueChanged)
         {
-            var periph = (NativePeripheral)peripheral.SystemClient;
+            var periph = (NativePeripheral)peripheral.NativePeripheral;
             ValueChangedHandler valueChangedHandler = (IntPtr data, UIntPtr length, RequestStatus errorCode) =>
             {
                 try
