@@ -8,8 +8,13 @@ namespace Dice
 {
     partial class Die
     {
+        protected string SafeName => this != null ? name : "(destroyed)";
+
         public IEnumerator UploadBulkDataAsync(byte[] bytes, DieOperationResultHandler<bool> onResult = null, DieOperationProgressHandler onProgress = null)
         {
+            // Keep name locally in case our game object gets destroyed along the way
+            string name = SafeName;
+
             short remainingSize = (short)bytes.Length;
             Debug.Log($"Die {name}: sending {remainingSize} bulk data");
             onProgress?.Invoke(0);
@@ -77,6 +82,9 @@ namespace Dice
 
         public IEnumerator DownloadBulkDataAsync(DieOperationResultHandler<byte[]> onResult = null, DieOperationProgressHandler onProgress = null)
         {
+            // Keep name locally in case our game object gets destroyed along the way
+            string name = SafeName;
+
             // Wait for setup message
             short size = 0;
             var waitForMsg = new WaitForMessageEnumerator<DieMessageBulkSetup>(this);
@@ -159,6 +167,9 @@ namespace Dice
 
         public IEnumerator UploadDataSetAsync(DataSet set, DieOperationResultHandler<bool> onResult = null, DieOperationProgressHandler onProgress = null)
         {
+            // Keep name locally in case our game object gets destroyed along the way
+            string name = SafeName;
+
             // Prepare the die
             var prepareDie = new DieMessageTransferAnimSet
             {
@@ -238,6 +249,9 @@ namespace Dice
 
         public IEnumerator PlayTestAnimationAsync(DataSet testAnimSet, DieOperationResultHandler<bool> onResult = null, DieOperationProgressHandler onProgress = null)
         {
+            // Keep name locally in case our game object gets destroyed along the way
+            string name = SafeName;
+
             // Prepare the die
             var prepareDie = new DieMessageTransferTestAnimSet
             {
@@ -301,6 +315,9 @@ namespace Dice
 
         private IEnumerator InternalUploadDataSetAsync(DieMessageType transferDataFinished, byte[] data, System.Action<string> onResult, DieOperationProgressHandler onProgress = null)
         {
+            // Keep name locally in case our game object gets destroyed along the way
+            string name = SafeName;
+
             bool programmingFinished = false;
             void ProgrammingFinishedCallback(IDieMessage finishedMsg) => programmingFinished = true;
 

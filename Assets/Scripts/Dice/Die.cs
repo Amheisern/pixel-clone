@@ -61,7 +61,7 @@ namespace Dice
                 Debug.Assert(System.Threading.Thread.CurrentThread.ManagedThreadId == 1);
                 if (value != _connectionState)
                 {
-                    Debug.Log($"Die {name}: connection state change, {_connectionState} => {value}");
+                    Debug.Log($"Die {SafeName}: connection state change, {_connectionState} => {value}");
                     var oldState = _connectionState;
                     _connectionState = value;
                     ConnectionStateChanged?.Invoke(this, oldState, value);

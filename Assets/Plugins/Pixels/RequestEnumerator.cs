@@ -31,7 +31,7 @@ namespace Systemic.Pixels.Unity.BluetoothLE
 
         public RequestStatus RequestStatus => _status.HasValue ? _status.Value : RequestStatus.InProgress;
 
-        public string ErrorMessage => RequestStatus switch
+        public string Error => RequestStatus switch
         {
             RequestStatus.Success => null,
             RequestStatus.InProgress => "Operation in progress",
@@ -68,6 +68,7 @@ namespace Systemic.Pixels.Unity.BluetoothLE
             else
             {
                 SetResult(RequestStatus.InvalidPeripheral);
+                //TODO check in NativeInterface instead
             }
         }
 

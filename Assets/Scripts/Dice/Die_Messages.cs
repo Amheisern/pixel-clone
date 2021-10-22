@@ -47,7 +47,7 @@ namespace Dice
         {
             EnsureRunningOnMainThread();
 
-            Debug.Log($"Die {name}: posting message of type {message.GetType()}");
+            Debug.Log($"Die {SafeName}: posting message of type {message.GetType()}");
 
             StartCoroutine(WriteDataAsync(DieMessages.ToByteArray(message)));
         }
@@ -173,7 +173,7 @@ namespace Dice
 
         public IEnumerator RenameDieAsync(string newName, DieOperationResultHandler<bool> onResult = null)
         {
-            Debug.Log($"Die {name}: renaming to " + newName);
+            Debug.Log($"Die {SafeName}: renaming to " + newName);
 
             byte[] nameBytes = System.Text.Encoding.UTF8.GetBytes(newName + "\0");
             byte[] nameByte10 = new byte[10]; // 10 is the declared size in DieMessageSetName. There is probably a better way to do this...
@@ -258,7 +258,7 @@ namespace Dice
             dataSetHash = idMsg.dataSetHash;
             flashSize = idMsg.flashSize;
             firmwareVersionId = idMsg.versionInfo;
-            Debug.Log($"Die {name}: {flashSize} bytes available for data, current dataset hash {dataSetHash:X08}, firmware version is {firmwareVersionId}");
+            Debug.Log($"Die {SafeName}: {flashSize} bytes available for data, current dataset hash {dataSetHash:X08}, firmware version is {firmwareVersionId}");
             if (appearanceChanged)
             {
                 AppearanceChanged?.Invoke(this, faceCount, designAndColor);
@@ -269,7 +269,7 @@ namespace Dice
         {
             // Handle the message
             var stateMsg = (DieMessageState)message;
-            Debug.Log($"Die {name}: state is {stateMsg.state}, {stateMsg.face}");
+            Debug.Log($"Die {SafeName}: state is {stateMsg.state}, {stateMsg.face}");
 
             var newState = (DieRollState)stateMsg.state;
             var newFace = stateMsg.face;
@@ -299,15 +299,15 @@ namespace Dice
         {
             var dlm = (DieMessageDebugLog)message;
             string text = System.Text.Encoding.UTF8.GetString(dlm.data, 0, dlm.data.Length);
-            Debug.Log($"Die {name}: {text}");
+            Debug.Log($"Die {SafeName}: {text}");
         }
 
         void OnNotifyUserMessage(IDieMessage message)
         {
             var notifyUserMsg = (DieMessageNotifyUser)message;
-            bool ok = notifyUserMsg.ok != 0;
+            //bool ok = notifyUserMsg.ok != 0;
             bool cancel = notifyUserMsg.cancel != 0;
-            float timeout = (float)notifyUserMsg.timeout_s;
+            //float timeout = notifyUserMsg.timeout_s;
             string text = System.Text.Encoding.UTF8.GetString(notifyUserMsg.data, 0, notifyUserMsg.data.Length);
             PixelsApp.Instance.ShowDialogBox("Message from " + name, text, "Ok", cancel ? "Cancel" : null, (res) =>
             {

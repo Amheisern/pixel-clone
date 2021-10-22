@@ -18,17 +18,53 @@ namespace Systemic.Pixels.Unity.BluetoothLE.Internal.Apple
 
             public bool IsValid => PeripheralId != null;
 
-            public NativeCBPeripheral(string peripheralId) => PeripheralId = peripheralId;
+            public NativeCBPeripheral(string peripheralId)
+                => PeripheralId = peripheralId;
         }
 
         sealed class NativePxPeripheral : INativePeripheral
         {
+            Dictionary<string, RequestIndex> _valueChangedRequestIndices = new Dictionary<string, RequestIndex>();
+
             public string PeripheralId { get; }
 
             public bool IsValid => PeripheralId != null;
 
-            public NativePxPeripheral(string peripheralId) => PeripheralId = peripheralId;
+            public RequestIndex ConnectionEventRequestIndex { get; }
 
+            public NativePxPeripheral(string peripheralId, RequestIndex connectionEventRequestIndex)
+                => (PeripheralId, ConnectionEventRequestIndex) = (peripheralId, connectionEventRequestIndex);
+
+            public void AddValueChangedHandlerRequestIndex(string serviceUuid, string characteristicUuid, uint instanceIndex, RequestIndex valueChangedRequestIndex)
+            {
+                lock (_valueChangedRequestIndices)
+                {
+                    _valueChangedRequestIndices[$"{serviceUuid}:{characteristicUuid}#{instanceIndex}"] = valueChangedRequestIndex;
+                }
+            }
+
+            public RequestIndex GetAndRemoveValueChangedHandlerRequestIndex(string serviceUuid, string characteristicUuid, uint instanceIndex)
+            {
+                RequestIndex index = 0;
+                lock (_valueChangedRequestIndices)
+                {
+                    string key = $"{serviceUuid}:{characteristicUuid}#{instanceIndex}";
+                    Debug.Assert(_valueChangedRequestIndices.ContainsKey(key));
+                    if (_valueChangedRequestIndices.TryGetValue(key, out index))
+                    {
+                        _valueChangedRequestIndices.Remove(key);
+                    }
+                }
+                return index;
+            }
+
+            public void ForgetAllValueHandlers()
+            {
+                lock (_valueChangedRequestIndices)
+                {
+                    _valueChangedRequestIndices.Clear();
+                }
+            }
         }
 
         const string _libName =
@@ -101,7 +137,7 @@ namespace Systemic.Pixels.Unity.BluetoothLE.Internal.Apple
         static NativeBluetoothEventHandler _onBluetoothEvent;
         static DiscoveredPeripheralHandler _onDiscoveredPeripheral; // We can have only one scan at a time, so one handler
         static Dictionary<RequestIndex, NativePeripheralConnectionEventHandler> _onConnectionEventHandlers = new Dictionary<RequestIndex, NativePeripheralConnectionEventHandler>();
-        static Dictionary<RequestIndex, NativeRequestResultHandler> _onRequestStatusHandlers = new Dictionary<RequestIndex, NativeRequestResultHandler>();
+        static Dictionary<RequestIndex, (Operation, NativeRequestResultHandler)> _onRequestStatusHandlers = new Dictionary<RequestIndex, (Operation, NativeRequestResultHandler)>();
         static Dictionary<RequestIndex, NativeValueRequestResultHandler<int>> _onRssiReadHandlers = new Dictionary<RequestIndex, NativeValueRequestResultHandler<int>>();
         static Dictionary<RequestIndex, NativeValueChangedHandler> _onValueChangedHandlers = new Dictionary<RequestIndex, NativeValueChangedHandler>();
         static volatile RequestIndex _requestIndex;
@@ -133,22 +169,26 @@ namespace Systemic.Pixels.Unity.BluetoothLE.Internal.Apple
         }
 
         [MonoPInvokeCallback(typeof(PeripheralConnectionEventHandler))]
-        static void OnPeripheralConnectionStatusChanged(RequestIndex requestIndex, string peripheralId, int connectionEvent, int reason)
+        static void OnPeripheralConnectionEvent(RequestIndex requestIndex, string peripheralId, int connectionEvent, int reason)
         {
             try
             {
+                // Get C# callback
                 NativePeripheralConnectionEventHandler handler;
                 lock (_onConnectionEventHandlers)
                 {
                     _onConnectionEventHandlers.TryGetValue(requestIndex, out handler);
                 }
+
                 if (handler != null)
                 {
+                    // Notify user code
                     handler((ConnectionEvent)connectionEvent, (ConnectionEventReason)reason);
                 }
                 else
                 {
-                    Debug.LogError($"ConnectionEvent handler #{requestIndex} not found");
+                    // Callback not found
+                    Debug.LogError($"ConnectionEvent handler #{requestIndex} not found, request connection event and reason: {(ConnectionEvent)connectionEvent}, {(ConnectionEventReason)reason}");
                 }
             }
             catch (Exception e)
@@ -162,21 +202,39 @@ namespace Systemic.Pixels.Unity.BluetoothLE.Internal.Apple
         {
             try
             {
+                var err = (AppleBluetoothError)errorCode;
+
+                // Get C# callback
+                Operation op;
                 NativeRequestResultHandler handler;
                 lock (_onConnectionEventHandlers)
                 {
-                    if (_onRequestStatusHandlers.TryGetValue(requestIndex, out handler))
+                    if (_onRequestStatusHandlers.TryGetValue(requestIndex, out (Operation, NativeRequestResultHandler) item))
                     {
                         _onRequestStatusHandlers.Remove(requestIndex);
                     }
+                    (op, handler) = item;
                 }
+
                 if (handler != null)
                 {
+                    // Log success or error
+                    if (err == AppleBluetoothError.Success)
+                    {
+                        Debug.Log($"{op} ==> Request successful");
+                    }
+                    else
+                    {
+                        Debug.LogError($"{op} ==> Request failed: {err} ({errorCode})");
+                    }
+
+                    // Notify user code
                     handler(ToRequestStatus(errorCode));
                 }
                 else
                 {
-                    Debug.LogError($"RequestStatus handler #{requestIndex} not found");
+                    // Callback not found
+                    Debug.LogError($"RequestStatus handler #{requestIndex} not found, request error code: {err} (0x{errorCode:X})");
                 }
             }
             catch (Exception e)
@@ -190,18 +248,34 @@ namespace Systemic.Pixels.Unity.BluetoothLE.Internal.Apple
         {
             try
             {
+                var err = (AppleBluetoothError)errorCode;
+
+                // Get C# callback
                 NativeValueRequestResultHandler<int> handler;
                 lock (_onRssiReadHandlers)
                 {
                     _onRssiReadHandlers.TryGetValue(requestIndex, out handler);
                 }
+
                 if (handler != null)
                 {
+                    // Log success or error
+                    if (err == AppleBluetoothError.Success)
+                    {
+                        Debug.Log($"{Operation.ReadPeripheralRssi} ==> Request successful");
+                    }
+                    else
+                    {
+                        Debug.LogError($"{Operation.ReadPeripheralRssi} ==> Request failed: {err} ({errorCode})");
+                    }
+
+                    // Notify user code
                     handler(rssi, ToRequestStatus(errorCode));
                 }
                 else
                 {
-                    Debug.LogError($"RssiReadHandler handler #{requestIndex} not found");
+                    // Callback not found
+                    Debug.LogError($"RssiReadHandler handler #{requestIndex} not found, request error code: {err} (0x{errorCode:X})");
                 }
             }
             catch (Exception e)
@@ -215,13 +289,16 @@ namespace Systemic.Pixels.Unity.BluetoothLE.Internal.Apple
         {
             try
             {
+                // Get C# callback
                 NativeValueChangedHandler handler;
                 lock (_onValueChangedHandlers)
                 {
                     _onValueChangedHandlers.TryGetValue(requestIndex, out handler);
                 }
+
                 if (handler != null)
                 {
+                    // Notify user code
                     var array = new byte[(int)length];
                     if (data != IntPtr.Zero)
                     {
@@ -231,7 +308,7 @@ namespace Systemic.Pixels.Unity.BluetoothLE.Internal.Apple
                 }
                 else
                 {
-                    Debug.LogError($"ValueChanged handler #{requestIndex} not found");
+                    Debug.LogError($"ValueChanged handler #{requestIndex} not found, request error code: {(AppleBluetoothError)errorCode} (0x{errorCode:X})");
                 }
             }
             catch (Exception e)
@@ -281,28 +358,35 @@ namespace Systemic.Pixels.Unity.BluetoothLE.Internal.Apple
             }
 
             string peripheralId = GetPeripheralId(scannedPeripheral);
-            bool success = pxBleCreatePeripheral(peripheralId, OnPeripheralConnectionStatusChanged, requestIndex);
-            return new PeripheralHandle(success ? new NativePxPeripheral(peripheralId) : null);
+            bool success = pxBleCreatePeripheral(peripheralId, OnPeripheralConnectionEvent, requestIndex);
+            return new PeripheralHandle(success ? new NativePxPeripheral(peripheralId, requestIndex) : null);
         }
 
         public void ReleasePeripheral(PeripheralHandle peripheral)
         {
-            pxBleReleasePeripheral(GetPeripheralId(peripheral));
+            var pxPeripheral = (NativePxPeripheral)peripheral.NativePeripheral;
+            pxBleReleasePeripheral(pxPeripheral.PeripheralId);
+            lock (_onConnectionEventHandlers)
+            {
+                _onConnectionEventHandlers.Remove(pxPeripheral.ConnectionEventRequestIndex);
+            }
         }
 
         //TODO on iOS connect waits indefinitely and autoConnect is ignored
         public void ConnectPeripheral(PeripheralHandle peripheral, string requiredServicesUuids, bool autoConnect, NativeRequestResultHandler onResult)
         {
-            var requestIndex = SetRequestHandler(onResult);
+            var requestIndex = SetRequestHandler(Operation.ConnectPeripheral, onResult);
 
             pxBleConnectPeripheral(GetPeripheralId(peripheral), requiredServicesUuids, OnRequestStatus, requestIndex);
         }
 
         public void DisconnectPeripheral(PeripheralHandle peripheral, NativeRequestResultHandler onResult)
         {
-            var requestIndex = SetRequestHandler(onResult);
+            var pxPeripheral = (NativePxPeripheral)peripheral.NativePeripheral;
+            var requestIndex = SetRequestHandler(Operation.DisconnectPeripheral, onResult);
 
-            pxBleDisconnectPeripheral(GetPeripheralId(peripheral), OnRequestStatus, requestIndex);
+            pxBleDisconnectPeripheral(pxPeripheral.PeripheralId, OnRequestStatus, requestIndex);
+            pxPeripheral.ForgetAllValueHandlers();
         }
 
         public string GetPeripheralName(PeripheralHandle peripheral)
@@ -349,7 +433,7 @@ namespace Systemic.Pixels.Unity.BluetoothLE.Internal.Apple
 
         public void ReadCharacteristic(PeripheralHandle peripheral, string serviceUuid, string characteristicUuid, uint instanceIndex, NativeValueChangedHandler onValueChanged, NativeRequestResultHandler onResult)
         {
-            var requestIndex = SetRequestHandler(onResult);
+            var requestIndex = SetRequestHandler(Operation.ReadCharacteristic, onResult);
             lock (_onValueChangedHandlers)
             {
                 _onValueChangedHandlers.Add(requestIndex, onValueChanged);
@@ -360,7 +444,7 @@ namespace Systemic.Pixels.Unity.BluetoothLE.Internal.Apple
 
         public void WriteCharacteristic(PeripheralHandle peripheral, string serviceUuid, string characteristicUuid, uint instanceIndex, byte[] data, bool withoutResponse, NativeRequestResultHandler onResult)
         {
-            var requestIndex = SetRequestHandler(onResult);
+            var requestIndex = SetRequestHandler(Operation.WriteCharacteristic, onResult);
 
             var ptr = Marshal.AllocHGlobal(data.Length);
             try
@@ -376,20 +460,28 @@ namespace Systemic.Pixels.Unity.BluetoothLE.Internal.Apple
 
         public void SubscribeCharacteristic(PeripheralHandle peripheral, string serviceUuid, string characteristicUuid, uint instanceIndex, NativeValueChangedHandler onValueChanged, NativeRequestResultHandler onResult)
         {
-            var requestIndex = SetRequestHandler(onResult);
+            var pxPeripheral = (NativePxPeripheral)peripheral.NativePeripheral;
+            var requestIndex = SetRequestHandler(Operation.SubscribeCharacteristic, onResult);
             lock (_onValueChangedHandlers)
             {
                 _onValueChangedHandlers.Add(requestIndex, onValueChanged);
             }
+            pxPeripheral.AddValueChangedHandlerRequestIndex(serviceUuid, characteristicUuid, instanceIndex, requestIndex);
 
-            pxBleSetNotifyCharacteristic(GetPeripheralId(peripheral), serviceUuid, characteristicUuid, instanceIndex, OnValueChangedHandler, OnRequestStatus, requestIndex);
+            pxBleSetNotifyCharacteristic(pxPeripheral.PeripheralId, serviceUuid, characteristicUuid, instanceIndex, OnValueChangedHandler, OnRequestStatus, requestIndex);
         }
 
         public void UnsubscribeCharacteristic(PeripheralHandle peripheral, string serviceUuid, string characteristicUuid, uint instanceIndex, NativeRequestResultHandler onResult)
         {
-            var requestIndex = SetRequestHandler(onResult);
+            var pxPeripheral = (NativePxPeripheral)peripheral.NativePeripheral;
+            var requestIndex = SetRequestHandler(Operation.UnsubscribeCharacteristic, onResult);
 
-            pxBleSetNotifyCharacteristic(GetPeripheralId(peripheral), serviceUuid, characteristicUuid, instanceIndex, null, OnRequestStatus, requestIndex);
+            pxBleSetNotifyCharacteristic(pxPeripheral.PeripheralId, serviceUuid, characteristicUuid, instanceIndex, null, OnRequestStatus, requestIndex);
+            requestIndex = pxPeripheral.GetAndRemoveValueChangedHandlerRequestIndex(serviceUuid, characteristicUuid, instanceIndex);
+            lock (_onValueChangedHandlers)
+            {
+                _onValueChangedHandlers.Remove(requestIndex);
+            }
         }
 
         private string GetPeripheralId(IScannedPeripheral scannedPeripheral)
@@ -402,12 +494,12 @@ namespace Systemic.Pixels.Unity.BluetoothLE.Internal.Apple
             return ((NativePxPeripheral)peripheralHandle.NativePeripheral).PeripheralId;
         }
 
-        private RequestIndex SetRequestHandler(NativeRequestResultHandler onResult)
+        private RequestIndex SetRequestHandler(Operation operation, NativeRequestResultHandler onResult)
         {
             var requestIndex = Interlocked.Increment(ref _requestIndex);
             lock (_onRequestStatusHandlers)
             {
-                _onRequestStatusHandlers.Add(requestIndex, onResult);
+                _onRequestStatusHandlers.Add(requestIndex, (operation, onResult));
             }
             return requestIndex;
         }
@@ -448,8 +540,12 @@ namespace Systemic.Pixels.Unity.BluetoothLE.Internal.Apple
             CBATTErrorUnsupportedGroupType = 0x10,          // The attribute type isn't a supported grouping attribute as defined by a higher-layer specification.
             CBATTErrorInsufficientResources = 0x11,         // Resources are insufficient to complete the ATT request.
 
-            UnknownError = unchecked((int)0x80000000),
+            Success = 0,
             InvalidPeripheralId = unchecked((int)0x80000001),
+            Disconnected = unchecked((int)0x80000100),
+            InvalidCall = unchecked((int)0x80000101),
+            InvalidParameters = unchecked((int)0x80000102),
+            Canceled = unchecked((int)0x80000103),
         }
 
         static RequestStatus ToRequestStatus(int errorCode)
@@ -461,8 +557,14 @@ namespace Systemic.Pixels.Unity.BluetoothLE.Internal.Apple
             else return errorCode switch
             {
                 0 => RequestStatus.Success,
+
                 //(int)AppleBluetoothError.UnknownError => RequestStatus.Error,
                 (int)AppleBluetoothError.InvalidPeripheralId => RequestStatus.InvalidPeripheral,
+                (int)AppleBluetoothError.Disconnected => RequestStatus.Disconnected,
+                (int)AppleBluetoothError.InvalidCall => RequestStatus.InvalidCall,
+                (int)AppleBluetoothError.InvalidParameters => RequestStatus.InvalidParameters,
+                (int)AppleBluetoothError.Canceled => RequestStatus.Canceled,
+
                 (int)AppleBluetoothError.CBErrorInvalidParameters => RequestStatus.InvalidParameters,
                 (int)AppleBluetoothError.CBErrorInvalidHandle => RequestStatus.InvalidParameters,
                 (int)AppleBluetoothError.CBErrorNotConnected => RequestStatus.Disconnected,
@@ -476,6 +578,7 @@ namespace Systemic.Pixels.Unity.BluetoothLE.Internal.Apple
                 //(int)AppleBluetoothError.CBErrorConnectionLimitReached => RequestStatus.Error,
                 //(int)AppleBluetoothError.CBErrorUnknownDevice => RequestStatus.Error,
                 (int)AppleBluetoothError.CBErrorOperationNotSupported => RequestStatus.NotSupported,
+
                 _ => RequestStatus.Error,
             };
         }

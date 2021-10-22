@@ -240,7 +240,7 @@ namespace Systemic.Pixels.Unity.BluetoothLE
                 ps.PeripheralHandle = NativeInterface.CreatePeripheral(peripheral,
                     (connectionEvent, reason) => EnqueueAction(ps, () =>
                     {
-                        Debug.Log($"[BLE:{ps.ScannedPeripheral.Name}] Got connection event `{connectionEvent}`{(reason == ConnectionEventReason.Success ? "" : $" with reason `{reason}`")}");
+                        Debug.Log($"[BLE:{ps.ScannedPeripheral.Name}] Got connection event `{connectionEvent}`{(reason == ConnectionEventReason.Success ? "" : $" with reason `{reason}`")}, isReady={ps.IsReady}");
                         OnPeripheralConnectionEvent(ps, connectionEvent, reason);
                     }));
 

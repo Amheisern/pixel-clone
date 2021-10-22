@@ -20,8 +20,10 @@ typedef void (*ValueChangedCallback)(request_index_t requestIndex, const void* d
 static PXBleCentralManagerDelegate *_central = nil;
 static NSMutableDictionary<CBPeripheral *, PXBlePeripheral *> *_peripherals = nil;
 
-static const int unexpectedErrorCode = 0x80000000;
-static const int invalidPeripheralIdErrorCode = 0x80000001;
+
+static const int otherErrorsMask = 0x80000000;
+static const int unexpectedError = otherErrorsMask;
+static const int invalidPeripheralIdErrorCode = otherErrorsMask | 1;
 
 int toErrorCode(NSError *error)
 {
@@ -39,10 +41,15 @@ int toErrorCode(NSError *error)
         // Protocol error (zero is success)
         return (int)error.code;
     }
+    else if (error.domain == pxBleGetErrorDomain())
+    {
+        // One of our own error
+        return otherErrorsMask | (0x100 + (int)error.code);
+    }
     else
     {
-        // Anty other error
-        return unexpectedErrorCode;
+        // Any other error
+        return unexpectedError;
     }
 }
 

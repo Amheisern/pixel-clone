@@ -256,6 +256,7 @@ public class Peripheral
         }
         else if (callback != null)
         {
+            //TODO this will happen if device was connecting, we should return a success once disconnected!
             // Immediately Notify invalid request
             callback.onInvalidRequest();
         }

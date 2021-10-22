@@ -27,7 +27,7 @@ namespace Dice
 
             public bool IsSuccess => Message != null;
 
-            public bool IsTimeout { get; private set; }
+            public bool IsTimeout { get; protected set; }
 
             public string Error { get; protected set; }
 
@@ -42,8 +42,9 @@ namespace Dice
             public WaitForMessageEnumerator(Die die, float timeoutSec = AckMessageTimeout)
             {
                 if (timeoutSec <= 0) throw new System.ArgumentException("Timeout value must be greater than zero", nameof(timeoutSec));
+                if (die == null) throw new System.ArgumentNullException(nameof(die));
 
-                Die = die ?? throw new System.ArgumentNullException(nameof(die));
+                Die = die;
                 _timeout = Time.realtimeSinceStartup + timeoutSec;
                 _msgType = DieMessages.GetMessageType<T>();
             }
@@ -62,14 +63,13 @@ namespace Dice
                 if ((!IsSuccess) && (_timeout > 0) && (Error == null))
                 {
                     // Update timeout
-                    IsTimeout = Time.realtimeSinceStartupAsDouble > _timeout;
-                    if (IsTimeout)
+                    if (IsTimeout = (Time.realtimeSinceStartupAsDouble > _timeout))
                     {
                         Error = $"Timeout while waiting for message of type {typeof(T)}";
                     }
                 }
 
-                // ErrorMessage might be set by child class
+                // Error might be set by child class
                 bool done = IsSuccess || IsTimeout || (Error != null);
                 if (done)
                 {
@@ -136,8 +136,16 @@ namespace Dice
                 {
                     if (!_sendMessage.IsSuccess)
                     {
-                        // Done sending message
-                        Error = $"Failed to send message of type {typeof(TMsg)}, {_sendMessage.Error}";
+                        if (_sendMessage.IsTimeout)
+                        {
+                            IsTimeout = true;
+                            Error = $"Timeout while sending for message of type {typeof(TMsg)}";
+                        }
+                        else
+                        {
+                            // Done sending message
+                            Error = $"Failed to send message of type {typeof(TMsg)}, {_sendMessage.Error}";
+                        }
                     }
                     _sendMessage = null;
                 }
