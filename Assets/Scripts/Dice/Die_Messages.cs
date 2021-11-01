@@ -83,7 +83,7 @@ namespace Dice
             PostMessage(new DieMessageAttractMode());
         }
 
-        public IEnumerator GetDieState(DieOperationResultHandler<bool> onResult = null)
+        public IEnumerator GetDieStateAsync(DieOperationResultHandler<bool> onResult = null)
         {
             var op = new SendMessageAndWaitForResponseEnumerator<DieMessageRequestState, DieMessageState>(this);
             yield return op;

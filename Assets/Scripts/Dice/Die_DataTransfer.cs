@@ -355,7 +355,7 @@ namespace Dice
             onResult(error);
         }
 
-        //public IEnumerator UploadSettingsAsync(DieSettings settings, OperationResultHandler<bool> onResult = null, OperationProgressHandler onProgress = null)
+        //public IEnumerator UploadSettingsAsync(DieSettings settings, DieOperationResultHandler<bool> onResult = null, DieOperationProgressHandler onProgress = null)
         //{
         //    // Prepare the die
         //    var waitForMsg = new SendMessageAndWaitForResponseEnumerator<DieMessageTransferSettings, DieMessageTransferSettingsAck>(this);
@@ -365,7 +365,7 @@ namespace Dice
         //    {
         //        // Die is ready, perform bulk transfer of the settings
         //        byte[] settingsBytes = DieSettings.ToByteArray(settings);
-        //        yield return UploadBulkDataCr(settingsBytes, onResult, onProgress);
+        //        yield return UploadBulkDataAsync(settingsBytes, onResult, onProgress);
         //    }
         //    else
         //    {
@@ -373,7 +373,7 @@ namespace Dice
         //    }
         //}
 
-        //public IEnumerator DownloadSettingsAsync(OperationResultHandler<DieSettings> onResult = null, OperationProgressHandler onProgress = null)
+        //public IEnumerator DownloadSettingsAsync(DieOperationResultHandler<DieSettings> onResult = null, DieOperationProgressHandler onProgress = null)
         //{
         //    // Request the settings from the die
         //    var waitForMsg = new SendMessageAndWaitForResponseEnumerator<DieMessageRequestSettings, DieMessageTransferSettings>(this);
@@ -386,7 +386,7 @@ namespace Dice
 
         //        string error = null;
         //        byte[] settingsBytes = null;
-        //        yield return DownloadBulkDataCr((buf, err) => (settingsBytes, error) = (buf, err));
+        //        yield return DownloadBulkDataAsync((buf, err) => (settingsBytes, error) = (buf, err));
 
         //        if (settingsBytes != null)
         //        {

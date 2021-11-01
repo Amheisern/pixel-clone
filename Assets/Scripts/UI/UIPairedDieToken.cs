@@ -115,16 +115,16 @@ public class UIPairedDieToken : MonoBehaviour
         if (die.die != null && die.die.connectionState == DieConnectionState.Ready)
         {
             var newName = Names.GetRandomName();
-            die.die.RenameDieAsync(newName, (res, _) =>
+            StartCoroutine(die.die.RenameDieAsync(newName, (res, _) =>
             {
-                if (res)
+                if (res && die.die != null)
                 {
                     die.die.name = newName;
                     die.name = newName;
                     AppDataSet.Instance.SaveData();
                     dieView.UpdateState();
                 }
-            });
+            }));
         }
     }
 
@@ -169,7 +169,7 @@ public class UIPairedDieToken : MonoBehaviour
         OnToggle();
         if (die.die != null && die.die.connectionState == DieConnectionState.Ready)
         {
-            die.die.BlinkAsync(Color.yellow, 3, null);
+            StartCoroutine(die.die.BlinkAsync(Color.yellow, 3, null));
         }
     }
 
@@ -187,15 +187,17 @@ public class UIPairedDieToken : MonoBehaviour
         while (true)
         {
             // Die might be destroyed (-> null) or change state at any time
-            while (die.die?.connectionState == DieConnectionState.Ready)
+            while (die.die && die.die.connectionState == DieConnectionState.Ready)
             {
                 // Fetch battery level
-                yield return die.die?.UpdateBatteryLevelAsync();
+                yield return die.die.UpdateBatteryLevelAsync();
 
                 // Fetch RSSI
-                yield return die.die?.UpdateRssiAsync();
-
-                yield return new WaitForSeconds(3.0f);
+                if (die.die)
+                {
+                    yield return die.die.UpdateRssiAsync();
+                    yield return new WaitForSeconds(3.0f);
+                }
             }
 
             yield return null;
